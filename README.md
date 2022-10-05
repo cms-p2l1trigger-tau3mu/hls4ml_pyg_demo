@@ -6,5 +6,5 @@ to install the conda environment, do: \
 conda env create -f environment.yml \
 conda activate pyg_to_hls_walkthrough \
 \
-The actual walkthrough is on pyg_to_hls_walkthrough.ipynb\
+The actual walkthrough is on pyg_to_hls_walkthrough.ipynb
 
