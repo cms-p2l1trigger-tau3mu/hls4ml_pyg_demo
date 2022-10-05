@@ -2,6 +2,6 @@
 Walkthrough of current progress of hls4ml pyg for tau3mu CMS experiment
 
 ## Installation
-do:
-conda env create -f environment.yml
-conda activate pyg_to_hls_walkthrough
+to install the conda environment, do: \
+conda env create -f environment.yml \
+conda activate pyg_to_hls_walkthrough \
