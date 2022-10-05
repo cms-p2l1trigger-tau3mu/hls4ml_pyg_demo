@@ -256,4 +256,4 @@ dependencies:
     - wget==3.2
     - widgetsnbextension==3.5.1
     - wrapt==1.12.1
-prefix: /home/swissman777/anaconda3/envs/hls4ml
+
