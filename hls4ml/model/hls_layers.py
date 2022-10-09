@@ -2001,10 +2001,14 @@ class GraphBlock(Layer): #parent class for EdgeBlock, NodeBlock
         params['bias_t'] = f'layer{self.index}_t'
         params['weight_t'] = f'layer{self.index}_t'
         params['table_t'] = f'layer{self.index}_t'
-        params['n_node'] = self.n_node_cppname
-        params['n_edge'] = self.n_edge_cppname
-        params['node_dim'] = self.node_dim_cppname
-        params['edge_dim'] = self.edge_dim_cppname
+        # params['n_node'] = self.n_node_cppname
+        # params['n_edge'] = self.n_edge_cppname
+        # params['node_dim'] = self.node_dim_cppname
+        # params['edge_dim'] = self.edge_dim_cppname
+        params['n_node'] = self.n_node
+        params['n_edge'] = self.n_edge
+        params['node_dim'] = self.node_dim
+        params['edge_dim'] = self.edge_dim
         # params['common_dim'] = self.common_dim_cppname
         params['out_dim'] = self.out_dim
         params['n_layers'] = self.attributes["n_layers"]
@@ -2426,17 +2430,17 @@ class NodeBlock(GraphBlock):
                         }};"""
 
         configs['node_attr_config'] = matrix_config_template.format(matrix_name="node_attr",
-                                                                    n_rows=self.n_node_cppname,
-                                                                    n_cols=self.node_dim_cppname,
+                                                                    n_rows=self.n_node,
+                                                                    n_cols=self.node_dim,
                                                                     gnn_resource_limit=self.model.config.config['gnn_resource_limit'])
 
         configs['edge_attr_aggr_config'] = matrix_config_template.format(matrix_name="edge_attr_aggr",
-                                                                         n_rows=self.n_node_cppname,
+                                                                         n_rows=self.n_node,
                                                                          n_cols=f"LAYER{self.index - 1}_OUT_DIM",
                                                                          gnn_resource_limit=self.model.config.config['gnn_resource_limit'])
 
         configs['node_update_config'] = matrix_config_template.format(matrix_name="node_update",
-                                                                      n_rows=self.n_node_cppname,
+                                                                      n_rows=self.n_node,
                                                                       n_cols=f"LAYER{self.index}_OUT_DIM",
                                                                       gnn_resource_limit=self.model.config.config['gnn_resource_limit'])
 
@@ -2586,18 +2590,18 @@ class EdgeAggregate(Layer):
                         }};"""
 
         configs['edge_attr_config'] = matrix_config_template.format(matrix_name="edge_attr",
-                                                                    n_rows=self.n_edge_cppname,
-                                                                    n_cols=self.edge_dim_cppname,
+                                                                    n_rows=self.n_edge,
+                                                                    n_cols=self.edge_dim,
                                                                     gnn_resource_limit=self.model.config.config['gnn_resource_limit'])
 
         configs['edge_attr_aggr_config'] = matrix_config_template.format(matrix_name="edge_attr_aggr",
-                                                                         n_rows=self.n_node_cppname,
+                                                                         n_rows=self.n_node,
                                                                          n_cols=f"LAYER{self.index}_OUT_DIM",
                                                                          gnn_resource_limit=self.model.config.config['gnn_resource_limit'])
         
         configs['node_attr_config'] = matrix_config_template.format(matrix_name="node_attr",
-                                                                    n_rows=self.n_node_cppname,
-                                                                    n_cols=self.edge_dim_cppname, #node_dim_cppname == 3, which is NOT what we want
+                                                                    n_rows=self.n_node,
+                                                                    n_cols=self.node_dim,
                                                                     gnn_resource_limit=self.model.config.config['gnn_resource_limit'])
         return configs
 

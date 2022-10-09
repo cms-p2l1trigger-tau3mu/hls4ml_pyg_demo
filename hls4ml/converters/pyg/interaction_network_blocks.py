@@ -38,25 +38,26 @@ def parse_NodeBlock(block_name, config, update_dict, index, n_node, n_edge, node
     layer_dict["class_name"] = "NodeBlock"
     layer_dict["inputs"] = [update_dict["last_node_update"], update_dict["last_edge_aggr_update"]]
     layer_dict["outputs"] = [f"layer{index}_out"]
+    layer_dict["n_edge"] = n_edge
     # print(f"type(update_dict): {type(update_dict)}")
     update_dict["last_last_node_update"] = update_dict["last_node_update"] #for residual block
     update_dict["last_node_update"] = f"layer{index}_out"
     # print(f"nodeblock layer_dict: {layer_dict}")
     return layer_dict, update_dict
 
-@pyg_handler('EdgeBlock')
-def parse_EdgeBlock(block_name, config, update_dict, index, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr):
-    layer_dict = parse_GraphBlock(block_name, config, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr)
-    layer_dict["class_name"] = "EdgeBlock"
-    layer_dict["inputs"] = [update_dict["last_node_update"], update_dict["last_edge_update"], "edge_index"]
-    layer_dict["outputs"] = [f"layer{index}_out"]
-    # print(f'EdgeBlock update_dict["last_edge_update"] b4: {update_dict["last_edge_update"] }')
-    update_dict["last_edge_update"] = f"layer{index}_out"
-    # print(f'EdgeBlock update_dict["last_edge_update"] after: {update_dict["last_edge_update"] }')
-    return layer_dict, update_dict
+# @pyg_handler('EdgeBlock')
+# def parse_EdgeBlock(block_name, config, update_dict, index, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr):
+#     layer_dict = parse_GraphBlock(block_name, config, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr)
+#     layer_dict["class_name"] = "EdgeBlock"
+#     layer_dict["inputs"] = [update_dict["last_node_update"], update_dict["last_edge_update"], "edge_index"]
+#     layer_dict["outputs"] = [f"layer{index}_out"]
+#     # print(f'EdgeBlock update_dict["last_edge_update"] b4: {update_dict["last_edge_update"] }')
+#     update_dict["last_edge_update"] = f"layer{index}_out"
+#     # print(f'EdgeBlock update_dict["last_edge_update"] after: {update_dict["last_edge_update"] }')
+#     return layer_dict, update_dict
 
 @pyg_handler('EdgeAggregate')
-def parse_EdgeAggregate(block_name, config, update_dict, index, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr):
+def parse_EdgeAggregate(block_name, config, update_dict, index, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr, Beta):
     layer_dict = {"name": f"aggr{index}",
                   "class_name": "EdgeAggregate",
                   "n_node": n_node,
@@ -67,7 +68,7 @@ def parse_EdgeAggregate(block_name, config, update_dict, index, n_node, n_edge, 
                   "inputs": [update_dict["last_node_update"], update_dict["last_edge_update"], "edge_index"],
                   "outputs": [f"layer{index}_out"],
                   "activate_final": "false",
-                  "Beta" : 3.8588860}
+                  "Beta" : Beta}
     update_dict["last_edge_aggr_update"] = f"layer{index}_out"
     # print(f"aggregate n_edge: {n_edge}")
     # print(f"aggregate last_node_update: {update_dict['last_node_update']}, last_edge_update: {update_dict['last_edge_update']}")
