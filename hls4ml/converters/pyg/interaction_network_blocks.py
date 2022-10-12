@@ -153,6 +153,20 @@ def parse_EdgeEncoderBatchNorm1d(block_name, config, update_dict, index, n_node,
     # print(f"EdgeEncoderBatchNorm1d node_dim: {edge_dim}")
     return layer_dict, update_dict
 
+@pyg_handler('MeanPool')
+def parse_MeanPool(block_name, config, update_dict, index, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr):
+    layer_dict = {
+                "name": f"pool",
+                "class_name": "MeanPool", 
+                "n_node" : n_node,
+                "node_dim" : node_dim,
+                "inputs": [update_dict["last_node_update"]],
+                "outputs": [f"layer{index}_out"]}
+    update_dict["last_node_update"] = f"layer{index}_out" 
+    # print(f"EdgeEncoderBatchNorm1d node_dim: {edge_dim}")
+    return layer_dict, update_dict
+
+
 """
 note: 
 -parse nodeblock, edgeblock and edgaggregates don't need node_dim nor edge_dims anymore

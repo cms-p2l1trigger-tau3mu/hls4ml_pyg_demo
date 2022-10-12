@@ -356,6 +356,7 @@ def pyg_to_hls(config):
     # print(f"PygModelReader edge_dim: {edge_dim}")
     # print(f"PygModelReader node_attr: {node_attr}")
     # print(f"PygModelReader edge_attr: {edge_attr}")
+    # print(f"activate_final: {activate_final}")
 
     # initiate layer list with inputs: node_attr, edge_attr, edge_index
     layer_list = [] # the order of this list doesn't matter

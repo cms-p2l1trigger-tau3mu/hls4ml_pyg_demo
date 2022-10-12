@@ -38,6 +38,7 @@ class VivadoWriter(Writer):
 
     def variable_definition_cpp(self, model, var, name_suffix='', as_reference=False):
         var_class = var.__class__.__name__
+        # print(f"var_class: {var_class}")
         if var_class == 'ArrayVariable':
             return '{type} {name}{suffix}[{shape}]'.format(type=var.type.name, name=var.cppname, suffix=name_suffix, shape=var.size_cpp())
         elif var_class == 'StreamVariable':
@@ -150,6 +151,10 @@ class VivadoWriter(Writer):
 
         model_inputs = model.get_input_variables()
         model_outputs = model.get_output_variables()
+        """
+        tmp soln to change model_outputs to be one dimensional instead of two
+        """
+        # model_outputs
         model_brams   = model.get_bram_variables()
 
         indent = '    '
@@ -172,6 +177,8 @@ class VivadoWriter(Writer):
                     newline += brams_str + ',\n'
                 newline += indent + insize_str + ',\n'
                 newline += indent + outsize_str + '\n'
+
+                print(f"outputs_str: {outputs_str}")
 
             elif '//hls-fpga-machine-learning insert load weights' in line:
                 newline = line
@@ -241,17 +248,19 @@ class VivadoWriter(Writer):
                 inputs = model.get_input_variables()
                 outputs = model.get_output_variables()
                 for layer in model.get_layers():
-                    # print(f"layer: {layer}")
+                    print(f"layer: {layer}")
                     vars = layer.get_variables()
                     # print(f"layer.get_variables(): {vars}")
                     for var in vars:
                         if var not in inputs and var not in outputs:
+                            # print(f"writer var: {var}")
                             def_cpp = self.variable_definition_cpp(model, var)
-                            # print(f"def_cpp: {def_cpp}")
+                            print(f"def_cpp: {def_cpp}")
                             if def_cpp is not None:
                                 newline += '    ' + def_cpp + ';\n'
                                 if var.pragma:
                                     newline += '    ' + self._make_array_pragma(var) + '\n'
+                                    # print(f"self._make_array_pragma(var): {self._make_array_pragma(var)}")
                     func = layer.function_cpp() #ie: 'nnet::edgeblock<input2_t, input3_t, layer4_t, config4>(node_attr, edge_attr, edge_index, layer4_out, R1_w0, R1_b0, R1_w1, R1_b1, R1_w2, R1_b2, R1_w3, R1_b3);'
                     # print(f"layer name: {layer.name}. func: {func}")
                     if func:
@@ -325,6 +334,9 @@ class VivadoWriter(Writer):
         fout.close()
 
     def write_defines(self, model):
+        #######################
+        ## defines.h
+        #######################
         filedir = os.path.dirname(os.path.abspath(__file__))
         f = open(os.path.join(filedir,'../templates/vivado/firmware/defines.h'),'r')
         fout = open('{}/firmware/defines.h'.format(model.config.get_output_dir()),'w')
@@ -336,6 +348,7 @@ class VivadoWriter(Writer):
                 newline = line
 
                 numbers = OrderedDict.fromkeys([layer.get_numbers_cpp() for layer in model.get_layers()])
+                # print(f"numbers: {numbers}")
                 numbers = set('\n'.join(numbers).split('\n')) #we want a unique set of macro declarations, since some of the macros are shared between different NN-blocks
 
                 # handle parallelization factor

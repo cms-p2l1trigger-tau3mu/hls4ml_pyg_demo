@@ -463,6 +463,12 @@ encoder_config_template = """struct config{index} : nnet::dense_config {{
     static const bool gnn_resource_limit = {gnn_resource_limit};
 }};\n"""
 
+mean_pool_config_template = """struct config{index} : nnet::mean_pool_config{{
+    static const unsigned n_node = {n_node};
+    static const unsigned node_dim = {node_dim};
+    static const bool gnn_resource_limit = {gnn_resource_limit};
+
+}};\n"""
 
 dense_function_template = 'nnet::dense<{input_t}, {output_t}, {config}>({input}, {output}, {w}, {b});'
 batchnorm_function_template = 'nnet::normalize<{input_t}, {output_t}, {config}>({input}, {output}, {scale}, {bias});'
@@ -491,6 +497,7 @@ nodeblock_function_template = 'nnet::nodeblock<{input_t}, {output_t}, {config}>(
 edge_aggregate_function_template = 'nnet::edge_aggregate<{input_t}, {index_t}, {output_t}, {config}>({node_attr}, {edge_attr}, {edge_index}, {out});'
 encoder_function_template = 'nnet::encoder<{input_t}, {output_t}, {config}>({input}, {output}, {w}, {b});'
 batchnorm2d_function_template = 'nnet::normalize_2D<{input_t}, {output_t}, {config}>({input}, {output}, {scale}, {bias});'
+mean_pool_function_template = 'nnet::mean_pool<{input_t}, {output_t}, {config}>({input}, {output});'
 
 dense_include_list = ['nnet_utils/nnet_dense.h', 'nnet_utils/nnet_dense_compressed.h', 'nnet_utils/nnet_dense_stream.h']
 batchnorm_include_list = ['nnet_utils/nnet_batchnorm.h', 'nnet_utils/nnet_batchnorm_stream.h']
@@ -524,7 +531,7 @@ nodeblock_include_list = ['nnet_utils/nnet_common.h',
                           'nnet_utils/nnet_batchnorm_stream.h']
 edge_aggregate_include_list = ['nnet_utils/nnet_graph.h']
 residual_include_list = ['nnet_utils/nnet_merge.h', 'nnet_utils/nnet_merge_stream.h', 'nnet_utils/nnet_graph.h']
-
+mean_pool_include_list = ['nnet_utils/nnet_graph.h']
 
 class VivadoBackend(Backend):
     def __init__(self, name='Vivado'):
@@ -564,6 +571,7 @@ class VivadoBackend(Backend):
         self.register_templates('NodeEncoder'            , encoder_function_template,       encoder_config_template, nodeblock_include_list)
         self.register_templates('EdgeEncoder'            , encoder_function_template,       encoder_config_template, nodeblock_include_list)
         self.register_templates('BatchNorm2D'     , batchnorm2d_function_template,   batchnorm2d_config_template, batchnorm_include_list)
+        self.register_templates('MeanPool'     , mean_pool_function_template,   mean_pool_config_template, mean_pool_include_list)
 
     def create_initial_config(self, part='xcku115-flvb2104-2-i', board=None, clock_period=5, io_type='io_parallel'):
         config = {}

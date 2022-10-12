@@ -79,6 +79,11 @@ namespace nnet {
      static const bool gnn_resource_limit = false;
   };
 
+  struct mean_pool_config
+  {
+     static const bool gnn_resource_limit = false;
+  };
+
   struct block_activation_config
   {
     // IO size
@@ -1533,6 +1538,46 @@ namespace nnet {
     // output array --> output vector
     nnet::mat_to_vec<res_T, res_T, typename CONFIG_T::matrix_op_config>(res, res_1D);
 
+  }
+
+  template<class data_T, class res_T, typename CONFIG_T>
+    void mean_pool(
+      data_T node_attr_1D[CONFIG_T::n_node*CONFIG_T::node_dim],
+      res_T res[CONFIG_T::node_dim])
+    /*
+    assumes that the batch has only one full graph.
+    Also, what we do is similar to edge mean aggregate, so I am sure we
+    can take some inspirations for optimization.
+    
+    Right now, just focusing on getting this working.
+
+    Also also, due to CNNS, we prob have pooling mechanisms in hls4ml already.
+    Will have to figure this all out
+    */
+  {
+    // if(CONFIG_T::gnn_resource_limit){
+    //     //#pragma DATAFLOW
+    //   }
+    data_T node_attr[CONFIG_T::n_node][CONFIG_T::node_dim];
+    #pragma HLS ARRAY_PARTITION variable=node_attr complete dim=0
+    nnet::vec_to_mat<data_T, data_T, typename CONFIG_T::node_attr_config>(node_attr_1D, node_attr);
+
+    // initialze res
+    for (int j=0; j<CONFIG_T::node_dim; j++) {
+      res[j] = 0;
+    }
+
+    data_T N = 0;
+    for (int i=0; i<CONFIG_T::n_node; i++) {
+      for (int j=0; j<CONFIG_T::node_dim; j++) {
+        res[j] = res[j] + node_attr[i][j];
+      }
+      N = N + 1;
+    }
+    // now normalize
+    for (int j=0; j<CONFIG_T::node_dim; j++) {
+      res[j] = res[j] / N;
+    }
   }
 
 }

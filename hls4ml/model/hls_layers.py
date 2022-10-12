@@ -2826,9 +2826,70 @@ class EdgeEncoder(Dense):
         config += "};"
         # print(f"edge encoder config cpp final: {config}")
         return config
-"""
-Hyeon-Seo code end
-"""
+
+class MeanPool(Merge):
+    def initialize(self):
+        inp = self.get_input_variable()
+        shape = inp.shape
+        dims = inp.dim_names
+        self.add_output_variable(shape, dims)
+        print(f" Mean pool initialize inp: {inp}")
+
+
+    def function_cpp(self):
+        params = {}
+        params['merge'] = 'mean_pool'
+        params['config'] = 'config{}'.format(self.index)
+        params['input_t'] = self.get_input_variable().type.name
+        params['output_t'] = self.get_output_variable().type.name
+        params['input'] = self.get_input_variable().name
+        params['output'] = self.get_output_variable().name
+        out =  self._function_template.format(**params)
+        print(f"final Mean pool template: {out}")
+        
+        return [out]
+
+    def config_cpp(self):
+        params = self._default_config_params()
+        params['gnn_resource_limit'] = 'false'
+        params['n_node'] = self.attributes['n_node']
+        params['node_dim'] = self.attributes['node_dim']
+
+        config = self._config_template.format(**params)
+
+        # matrix configs
+        matrix_config_template = """\n    struct {matrix_name}_config: nnet::matrix_config{{
+                    static const unsigned n_rows = {n_rows};
+                    static const unsigned n_cols = {n_cols};
+                    static const bool gnn_resource_limit = {gnn_resource_limit};
+                }};"""
+        # print(f"encoder config cpp pre cut: {config}")
+        config = config[:-3] # get rid of '};'
+        node_attr_config = matrix_config_template.format(matrix_name="node_attr",
+                                                    n_rows=self.attributes['n_node'],
+                                                    n_cols=self.attributes['node_dim'],
+                                                    gnn_resource_limit=self.model.config.config['gnn_resource_limit'])
+        
+        config += node_attr_config + "\n"
+        config += "};"
+
+        return config
+
+    def get_variables(self):
+        # print(f"mean pool self.variables.values(): {self.variables.values()}")
+        vars = self.variables.values()
+        for var in vars:
+            # print(f"mean pool var.dim_names: {var.dim_names}")
+            var.dim_names = [str(self.attributes['node_dim'])]
+        return self.variables.values()
+
+    def get_numbers_cpp(self):
+        """
+        if you don't do this, you get "#define N_LAYER_1_4 28"
+        in the defines.h when hls_model.compile() is run
+        """
+        numbers = ''
+        return numbers
 
 layer_map = {
     'Input'                  : Input,
@@ -2882,6 +2943,7 @@ layer_map = {
     'NodeEncoder'          : NodeEncoder,
     'EdgeEncoder'          : EdgeEncoder,
     'BatchNorm2D'          : BatchNorm2D,
+    'MeanPool'            : MeanPool,
     # TensorFlow-specific layers:
     'BiasAdd'                : BiasAdd,
 }
