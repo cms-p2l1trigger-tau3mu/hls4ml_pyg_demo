@@ -2830,10 +2830,11 @@ class EdgeEncoder(Dense):
 class MeanPool(Merge):
     def initialize(self):
         inp = self.get_input_variable()
-        shape = inp.shape
-        dims = inp.dim_names
+        shape = inp.shape[-1:]
+        dims = inp.dim_names[-1:]
         self.add_output_variable(shape, dims)
-        print(f" Mean pool initialize inp: {inp}")
+        # print(f"inp.shape: {inp.shape}")
+        # print(f" Mean pool initialize inp: {inp}")
 
 
     def function_cpp(self):
@@ -2875,17 +2876,17 @@ class MeanPool(Merge):
 
         return config
 
-    def get_variables(self):
-        """
-        bc python uses pointers, this works, but hopefully we have a more elegant 
-        solutions to alter the variable dim_names
-        """
-        # print(f"mean pool self.variables.values(): {self.variables.values()}")
-        vars = self.variables.values()
-        for var in vars:
-            # print(f"mean pool var.dim_names: {var.dim_names}")
-            var.dim_names = [str(self.attributes['node_dim'])]
-        return self.variables.values()
+    # def get_variables(self):
+    #     """
+    #     bc python uses pointers, this works, but hopefully we have a more elegant 
+    #     solutions to alter the variable dim_names
+    #     """
+    #     # print(f"mean pool self.variables.values(): {self.variables.values()}")
+    #     vars = self.variables.values()
+    #     for var in vars:
+    #         # print(f"mean pool var.dim_names: {var.dim_names}")
+    #         var.dim_names = [str(self.attributes['node_dim'])]
+    #     return self.variables.values()
 
     def get_numbers_cpp(self):
         """

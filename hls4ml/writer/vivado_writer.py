@@ -152,7 +152,7 @@ class VivadoWriter(Writer):
         model_inputs = model.get_input_variables()
         model_outputs = model.get_output_variables()
 
-        model_outputs[0].dim_names.pop(0) # tmp soln to change model_outputs to be one dimensional instead of two
+        # print(f"model_outputs[0].cppname: {model_outputs[0].cppname}")
         # print(f"model_outputs[0].dim_names: {model_outputs[0].dim_names}")
         model_brams   = model.get_bram_variables()
 

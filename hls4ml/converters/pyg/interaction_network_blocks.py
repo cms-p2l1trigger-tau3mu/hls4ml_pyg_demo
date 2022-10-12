@@ -167,6 +167,24 @@ def parse_MeanPool(block_name, config, update_dict, index, n_node, n_edge, node_
     return layer_dict, update_dict
 
 
+@pyg_handler('fc_out')
+def parse_fc_out(block_name, config, update_dict, index, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr):
+    layer_dict = {
+                "name": f"fc_out",
+                "class_name": "Dense", #"Dense", 
+                "n_in": node_dim,
+                "n_out": 1,
+                # "n_rows" : n_node,
+                # "n_cols" : node_attr,
+                "inputs": [update_dict["last_node_update"]],
+                "outputs": [f"layer{index}_out"],
+                "activate_final": "false"}
+    update_dict["last_node_update"] = f"layer{index}_out" 
+    # print(f"node encoder layer_dict['n_in']: {layer_dict['n_in']}")
+    # print(f"node encoder layer_dict['n_out']: {layer_dict['n_out']}")
+    
+    return layer_dict, update_dict
+
 """
 note: 
 -parse nodeblock, edgeblock and edgaggregates don't need node_dim nor edge_dims anymore
