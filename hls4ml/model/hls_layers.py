@@ -2876,6 +2876,10 @@ class MeanPool(Merge):
         return config
 
     def get_variables(self):
+        """
+        bc python uses pointers, this works, but hopefully we have a more elegant 
+        solutions to alter the variable dim_names
+        """
         # print(f"mean pool self.variables.values(): {self.variables.values()}")
         vars = self.variables.values()
         for var in vars:
