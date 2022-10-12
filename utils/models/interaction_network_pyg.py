@@ -5,7 +5,8 @@ import torch_geometric
 import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric.transforms as T
-from torch_geometric.nn import MessagePassing
+from torch_geometric.nn import MessagePassing, global_mean_pool
+
 from torch.nn import Sequential as Seq, Linear, ReLU, Sigmoid
 from torch_scatter import scatter, scatter_softmax
 import pickle as pkl
@@ -303,6 +304,7 @@ class GENConvBig(nn.Module):
         ):
         super().__init__()
         self.flow = flow
+        self.debugging = debugging
         self.n_layers = n_layers
         self.out_channels = out_channels
         self.hidden_size = 2*self.out_channels
@@ -311,7 +313,7 @@ class GENConvBig(nn.Module):
         self.edge_encoder = nn.Linear(4, self.out_channels)
         self.edge_encoder_norm = EdgeEncoderBatchNorm1d(self.out_channels)
 
-        self.debugging = debugging
+        
 
 
         self.gnns = nn.ModuleList() # this is where we keep our GNN layers
@@ -331,6 +333,7 @@ class GENConvBig(nn.Module):
             self.gnns.append(gnn)
         assert(len(self.gnns) == self.n_layers)
 
+        self.pool = global_mean_pool
 
 
         
@@ -389,7 +392,8 @@ class GENConvBig(nn.Module):
                     df.to_csv(f"./debugging/{counter}_residual_output.csv", index=False) 
                     counter += 1# for debugging
 
-            output = residual
+            batch = None
+            output = self.pool(residual, batch)
             output = torch.sigmoid(output.flatten()) # final activation
             return output
 
