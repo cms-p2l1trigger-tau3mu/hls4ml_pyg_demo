@@ -1168,34 +1168,24 @@ namespace nnet {
       // std::cout << "nodeblock index i: " << i << "\n";
       #pragma HLS UNROLL
 
-      // construct NN input: <node, edge_attr_aggr>
-      // data_T phi_input[CONFIG_T::common_dim];
-      data_T phi_input[CONFIG_T::node_dim];
-      #pragma HLS ARRAY_PARTITION variable=phi_input complete dim=0
-      // std::cout << "c = x + aggr_out\n";
-      // nnet::concatenate1d<data_T, data_T, data_T, typename CONFIG_T::merge_config1>(node_attr[i], edge_attr_aggr[i], phi_input);
-      nnet::residualBlock<data_T, data_T, data_T, typename CONFIG_T::merge_config1>(node_attr[i], edge_attr_aggr[i], phi_input);
-      // nnet::add<data_T, data_T, data_T, typename CONFIG_T::merge_config1>(node_attr[i], edge_attr_aggr[i], phi_input);
-      // send it through NN
-      // std::cout << "n_layers: " <<  CONFIG_T::n_layers<< "\n";
-
-
+     
       // debugging
       // for (unsigned j = 0; j < CONFIG_T::edge_dim; j++) {
       //   std::cout << "nodeblock index i:" << i << ", j:" << j << ", phi_input:" << phi_input[j] << "\n";
       // }
 
+
       if(CONFIG_T::n_layers == 1){
-      nnet::dense_mult_1lyr<data_T, res_T, CONFIG_T>(phi_input, node_update[i], core_node_w0, core_node_b0);
+      nnet::dense_mult_1lyr<data_T, res_T, CONFIG_T>(edge_attr_aggr[i], node_update[i], core_node_w0, core_node_b0);
       }
       else if(CONFIG_T::n_layers == 2){
-      nnet::dense_mult_2lyr<data_T, res_T, CONFIG_T>(phi_input, node_update[i], core_node_w0, core_node_b0, core_node_w1, core_node_b1, norm_s0, norm_b0);
+      nnet::dense_mult_2lyr<data_T, res_T, CONFIG_T>(edge_attr_aggr[i], node_update[i], core_node_w0, core_node_b0, core_node_w1, core_node_b1, norm_s0, norm_b0);
       }
       else if(CONFIG_T::n_layers == 3){
-      nnet::dense_mult_3lyr<data_T, res_T, CONFIG_T>(phi_input, node_update[i], core_node_w0, core_node_b0, core_node_w1, core_node_b1, core_node_w2, core_node_b2);
+      nnet::dense_mult_3lyr<data_T, res_T, CONFIG_T>(edge_attr_aggr[i], node_update[i], core_node_w0, core_node_b0, core_node_w1, core_node_b1, core_node_w2, core_node_b2);
       }
       else { // CONFIG_T::n_layers == 4
-      nnet::dense_mult_4lyr<data_T, res_T, CONFIG_T>(phi_input, node_update[i], core_node_w0, core_node_b0, core_node_w1, core_node_b1, core_node_w2, core_node_b2, core_node_w3, core_node_b3);
+      nnet::dense_mult_4lyr<data_T, res_T, CONFIG_T>(edge_attr_aggr[i], node_update[i], core_node_w0, core_node_b0, core_node_w1, core_node_b1, core_node_w2, core_node_b2, core_node_w3, core_node_b3);
       }
 
       // std::cout << "nodeblock index i: " << i << "\n";

@@ -75,8 +75,29 @@ class NodeEncoderBatchNorm1d(nn.Module):
         super(NodeEncoderBatchNorm1d, self).__init__()
         self.norm = nn.BatchNorm1d(input_size)
 
+    # @property
+    # def weight(self):
+    #     print('Getting weight')
+    #     return self.norm.weight
+    # @property
+    # def bias(self):
+    #     print('Getting bias')
+    #     return self.norm.bias
+    # @property
+    # def running_mean(self):
+    #     print('Getting running_mean')
+    #     return self.norm.running_mean
+    # @property
+    # def running_var(self):
+    #     print('Getting running_var')
+    #     return self.norm.running_var
+
+    def state_dict(self, *args, **kwargs):
+        return self.norm.state_dict(*args, **kwargs)
+
     def forward(self, x):
         return self.norm(x)
+
 
 
 class EdgeEncoderBatchNorm1d(nn.Module):
@@ -86,6 +107,7 @@ class EdgeEncoderBatchNorm1d(nn.Module):
     def __init__(self, input_size):
         super(EdgeEncoderBatchNorm1d, self).__init__()
         self.norm = nn.BatchNorm1d(input_size)
+
 
     def forward(self, x):
         return self.norm(x)
@@ -187,7 +209,7 @@ class GENConvSmall(MessagePassing):
         # print("message passing")
         if self.debugging:
             df = pd.DataFrame(msg.cpu().numpy())
-            df.to_csv(f"./debugging/{self.id}_message_msg.csv", index=False) # for debugging
+            df.to_csv(f"./debugging/{self.id}_message_output.csv", index=False) # for debugging
         return msg
 
     # def message(self, x_j: Tensor, edge_attr: OptTensor, edge_atten=None) -> Tensor:
@@ -236,10 +258,11 @@ class GENConvSmall(MessagePassing):
             df.to_csv(f"./debugging/{self.id}_update_x.csv", index=False) # for debugging
         # print(f"update x: {x}")
 
-        c = x + aggr_out
+        # c = x + aggr_out
+        c = aggr_out
         if self.debugging:
             df = pd.DataFrame(c.cpu().numpy())
-            df.to_csv(f"./debugging/{self.id}_update_c.csv", index=False) # for debugging
+            df.to_csv(f"./debugging/{self.id}_mlp_input.csv", index=False) # for debugging
         
         # print(f"x: {x}")
 
@@ -317,6 +340,8 @@ class GENConvBig(nn.Module):
             x = data.x
             # print(f"Node Encoder input {x}")
             x = self.node_encoder(x)
+            df = pd.DataFrame(x.cpu().numpy())
+            df.to_csv(f"./debugging/node_encoder_output.csv", index=False) 
             
             # print(f"Node Encoder output max: {torch.max(x)}")
             # print(f"Node Encoder output abs means: {torch.mean(torch.abs(x))}")
@@ -328,6 +353,8 @@ class GENConvBig(nn.Module):
             edge_index, edge_attr = data.edge_index, data.edge_attr
             # print(f"Edge Encoder input {edge_attr}")
             edge_attr = self.edge_encoder(edge_attr)
+            df = pd.DataFrame(edge_attr.cpu().numpy())
+            df.to_csv(f"./debugging/edge_encoder_output.csv", index=False) 
             # print(f"Edge Encoder output max: {torch.max(edge_attr)}")
             # print(f"Edge Encoder output abs means: {torch.mean(torch.abs(edge_attr))}")
             # print(f"Edge Encoder output mean: {torch.mean(edge_attr)}. std:{torch.std(edge_attr)}")
@@ -339,10 +366,17 @@ class GENConvBig(nn.Module):
             # now batchnorm the encoder
 
             # print(f"node_encoder_norm state_dict: {self.node_encoder_norm.state_dict()}")
+            df = pd.DataFrame(x.cpu().numpy())
+            df.to_csv(f"./debugging/node_encoder_norm_input.csv", index=False) 
+
             x = self.node_encoder_norm(x)
+            df = pd.DataFrame(x.cpu().numpy())
+            df.to_csv(f"./debugging/node_encoder_norm_output.csv", index=False) 
             # print(f"node_encoder_norm output: {x}")
-            # print(f"node_encoder_norm weight: {self.node_encoder_norm.weight}")
+            # print(f"node_encoder_norm.norm weight: {self.node_encoder_norm.norm.weight}")
             edge_attr = self.edge_encoder_norm (edge_attr)
+            df = pd.DataFrame(edge_attr.cpu().numpy())
+            df.to_csv(f"./debugging/edge_encoder_norm_output.csv", index=False) 
             # print(f"edge_encoder_norm output {edge_attr}")
 
             # now GNN layers

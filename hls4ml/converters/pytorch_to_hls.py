@@ -15,7 +15,9 @@ class PyTorchModelReader(object):
     """
     def __init__(self, config):
         self.torch_model = config['PytorchModel']
+        print(f"self.torch_model: {self.torch_model}")
         self.state_dict = self.torch_model.state_dict()
+        
         self.input_shape = config['InputShape']
     
     def get_weights_data(self, layer_name, var_name):
