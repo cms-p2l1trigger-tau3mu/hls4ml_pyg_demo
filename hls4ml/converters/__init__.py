@@ -127,7 +127,8 @@ def convert_from_config(config):
             raise Exception("ONNX not found. Please install ONNX.")
     elif 'PytorchModel' in yamlConfig:
         if __pytorch_enabled__:
-            model = pytorch_to_hls(yamlConfig)
+            # model = pytorch_to_hls(yamlConfig)
+            model = pyg_to_hls(yamlConfig)
         else:
             raise Exception("PyTorch not found. Please install PyTorch.")
     elif 'TensorFlowModel' in yamlConfig:

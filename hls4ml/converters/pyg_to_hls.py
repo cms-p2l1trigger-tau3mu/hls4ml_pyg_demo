@@ -410,13 +410,14 @@ def pyg_to_hls(config):
         forward_dict_new[key] = val
 
     # complete the layer list
+    betaQueue = list(Betas)
     for i, (key, val) in enumerate(forward_dict_new.items()):
         # get inputs, outputs
         index = len(layer_list)+1
         # print(f"block_handlers.keys(): {block_handlers.keys()}")
         # print("Parsing Torch Layers into HLS ones")
         if 'aggr' in key: # aggregate layer
-            Beta = Betas.pop(0)
+            Beta = betaQueue.pop(0)
             layer_dict, update_dict = block_handlers[val](key, config, update_dict, index, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr, Beta)
         else:
             layer_dict, update_dict = block_handlers[val](key, config, update_dict, index, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr)

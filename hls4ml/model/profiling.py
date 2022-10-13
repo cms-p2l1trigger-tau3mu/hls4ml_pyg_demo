@@ -177,7 +177,8 @@ def types_hlsmodel(model):
 
     for layer in model.get_layers():
         for iw, weight in enumerate(layer.get_weights()):
-            wname = '{}/{}'.format(layer.name, suffix[iw])
+            # wname = '{}/{}'.format(layer.name, suffix[iw])
+            wname = weight.cppname
             T = weight.type
             if T.name != 'model':
                 W, I, F, S = ap_fixed_WIFS(T.precision)
@@ -214,7 +215,8 @@ def weights_hlsmodel(model, fmt='longform', plot='boxplot'):
     for layer in model.get_layers():
         name = layer.name
         for iw, weight in enumerate(layer.get_weights()):
-            l = '{}/{}'.format(name, suffix[iw])
+            # l = '{}/{}'.format(name, suffix[iw])
+            l = weight.cppname
             w = weight.data.flatten()
             w = abs(w[w != 0])
             n = len(w)
