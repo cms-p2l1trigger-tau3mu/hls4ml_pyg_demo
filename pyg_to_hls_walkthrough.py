@@ -72,7 +72,7 @@ def load_graphs(graph_indir, graph_dims, n_graphs):
 """
 We intialize our custom pytorch geometric(pyg) model
 """
-n_layers = 8
+n_layers = 2
 torch_model = GENConvBig(
     n_layers, 
     flow = "source_to_target",
@@ -271,9 +271,9 @@ We initialize hls model from pyg model
 """
 output_dir = "test_GNN"
 config = config_from_pyg_model(torch_model,
-                                   default_precision="ap_fixed<52,20>",
-                                   default_index_precision='ap_uint<16>', 
-                                   default_reuse_factor=8)
+                                   default_precision="ap_fixed<8,4>",
+                                   default_index_precision='ap_uint<4>', 
+                                   default_reuse_factor=16)
 print(f"config: {config}")
 hls_model = convert_from_pyg_model(torch_model,
                                        n_edge=graph_dims['n_edge'],
@@ -291,6 +291,7 @@ hls_model = convert_from_pyg_model(torch_model,
 
 
 hls_model.compile()
+hls_model.build()
     
 
 
