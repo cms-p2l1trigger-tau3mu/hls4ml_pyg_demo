@@ -242,7 +242,7 @@ output_dir = "test_GNN"
 config = config_from_pyg_model(torch_model,
                                    default_precision="ap_fixed<16,8>",
                                    default_index_precision='ap_uint<8>', 
-                                   default_reuse_factor=8)
+                                   default_reuse_factor=16)
 print(f"config: {config}")
 hls_model = convert_from_pyg_model(torch_model,
                                        n_edge=graph_dims['n_edge'],

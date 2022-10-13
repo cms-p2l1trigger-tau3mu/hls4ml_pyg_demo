@@ -44,28 +44,28 @@ class ResidualBlock(nn.Module):
         assert(h_prev.shape == h_after.shape)
         return h_prev+h_after
 
-class NodeEncoder(nn.Module):
-    """
-    output shape should be same as the input shape
-    """
-    def __init__(self, input_size, output_size):
-        super(NodeEncoder, self).__init__()
-        self.encoder = nn.Linear(input_size, output_size)
+# class NodeEncoder(nn.Module):
+#     """
+#     output shape should be same as the input shape
+#     """
+#     def __init__(self, input_size, output_size):
+#         super(NodeEncoder, self).__init__()
+#         self.encoder = nn.Linear(input_size, output_size)
 
-    def forward(self, x):
-        return self.encoder(x)
+#     def forward(self, x):
+#         return self.encoder(x)
 
 
-class EdgeEncoder(nn.Module):
-    """
-    output shape should be same as the input shape
-    """
-    def __init__(self, input_size, output_size):
-        super(EdgeEncoder, self).__init__()
-        self.encoder = nn.Linear(input_size, output_size)
+# class EdgeEncoder(nn.Module):
+#     """
+#     output shape should be same as the input shape
+#     """
+#     def __init__(self, input_size, output_size):
+#         super(EdgeEncoder, self).__init__()
+#         self.encoder = nn.Linear(input_size, output_size)
 
-    def forward(self, x):
-        return self.encoder(x)
+#     def forward(self, x):
+#         return self.encoder(x)
 
 
 class NodeEncoderBatchNorm1d(nn.Module):
@@ -313,9 +313,6 @@ class GENConvBig(nn.Module):
         self.edge_encoder = nn.Linear(4, self.out_channels)
         self.edge_encoder_norm = EdgeEncoderBatchNorm1d(self.out_channels)
 
-        
-
-
         self.gnns = nn.ModuleList() # this is where we keep our GNN layers
         # automate nodeblock creation
         for idx in range(self.n_layers):
@@ -334,6 +331,7 @@ class GENConvBig(nn.Module):
         assert(len(self.gnns) == self.n_layers)
 
         self.pool = global_mean_pool
+        self.fc_out =  nn.Linear(self.out_channels, 1)
 
 
         
@@ -394,6 +392,7 @@ class GENConvBig(nn.Module):
 
             batch = None
             output = self.pool(residual, batch)
+            output = self.fc_out(output)
             output = torch.sigmoid(output.flatten()) # final activation
             return output
 
