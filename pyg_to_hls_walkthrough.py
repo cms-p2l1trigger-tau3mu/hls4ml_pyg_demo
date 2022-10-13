@@ -88,31 +88,15 @@ state_dict = torch.load('./model.pt', map_location="cpu")
 load/transfer the state dict into our pyg model
 """
 
-# print(type(torch_model.node_encoder.weight))
-# print(type(siqi_model_state_dict['model_state_dict']['node_encoder.weight']))
+"""
+load/transfer the state dict into our pyg model
+"""
+
+
 torch_model.node_encoder.weight = nn.Parameter(state_dict['model_state_dict']['node_encoder.weight'])
 torch_model.node_encoder.bias = nn.Parameter(state_dict['model_state_dict']['node_encoder.bias'])
 torch_model.edge_encoder.weight = nn.Parameter(state_dict['model_state_dict']['edge_encoder.weight'])
 torch_model.edge_encoder.bias = nn.Parameter(state_dict['model_state_dict']['edge_encoder.bias'])
-torch_model.node_encoder_norm.weight = nn.Parameter(
-    state_dict['model_state_dict']['bn_node_feature.weight']
-)
-torch_model.node_encoder_norm.norm.weight = torch_model.node_encoder_norm.weight # this is temporary soln to the structure of the class
-
-torch_model.node_encoder_norm.bias = nn.Parameter(
-    state_dict['model_state_dict']['bn_node_feature.bias']
-)
-torch_model.node_encoder_norm.norm.bias = torch_model.node_encoder_norm.bias # this is temporary soln to the structure of the class
-
-torch_model.node_encoder_norm.running_mean = nn.Parameter(
-    state_dict['model_state_dict']['bn_node_feature.running_mean']
-)
-torch_model.node_encoder_norm.norm.running_mean = torch_model.node_encoder_norm.running_mean # this is temporary soln to the structure of the class
-
-torch_model.node_encoder_norm.running_var = nn.Parameter(
-    state_dict['model_state_dict']['bn_node_feature.running_var']
-)
-torch_model.node_encoder_norm.norm.running_var = torch_model.node_encoder_norm.running_var # this is temporary soln to the structure of the class
 
 
 torch_model.edge_encoder_norm.weight = nn.Parameter(
@@ -134,6 +118,9 @@ torch_model.edge_encoder_norm.running_var = nn.Parameter(
     state_dict['model_state_dict']['bn_edge_feature.running_var']
 )
 torch_model.edge_encoder_norm.norm.running_var = torch_model.edge_encoder_norm.running_var # this is temporary soln to the structure of the class
+
+
+
 
 # now the nodeblocks and betas
 original_layer_idxs = [0,1,4] # don't ask me why it jumps from 1 to 4
@@ -167,7 +154,20 @@ for nodeblock_idx in range(n_layers):
                 state_dict['model_state_dict'][mlp_name+f"{original_layer_idx}.running_var"]
             )
         
-        
+    
+torch_model.fc_out.weight = nn.Parameter(state_dict['model_state_dict']['fc_out.weight'])
+torch_model.fc_out.bias = nn.Parameter(state_dict['model_state_dict']['fc_out.bias'])
+
+batchnorm_st_dict = OrderedDict()
+batchnorm_st_dict["weight"] = state_dict['model_state_dict']['bn_node_feature.weight']
+batchnorm_st_dict["bias"] = state_dict['model_state_dict']['bn_node_feature.bias']
+batchnorm_st_dict["running_mean"] = state_dict['model_state_dict']['bn_node_feature.running_mean']
+batchnorm_st_dict["running_var"] = state_dict['model_state_dict']['bn_node_feature.running_var']
+torch_model.node_encoder_norm.norm.load_state_dict(batchnorm_st_dict)
+
+"""
+Just some code to test if the transfer was successful
+"""
 """
 Just some code to test if the transfer was successful
 """
@@ -188,25 +188,55 @@ for nodeblock_idx in range(n_layers):
             boolean_val = torch.all(
                 module.state_dict()["weight"] == state_dict['model_state_dict'][mlp_name+f"{original_layer_idx}.weight"]
             )
-            print(f"weight loading for layer {idx} successful: {boolean_val}")
+            print(f"weight loading for nodeblock {nodeblock_idx} layer {idx} successful: {boolean_val}")
             
             boolean_val = torch.all(
                 module.state_dict()["bias"] == state_dict['model_state_dict'][mlp_name+f"{original_layer_idx}.bias"]
             )
-            print(f"bias loading for layer {idx} successful: {boolean_val}")
+            print(f"bias loading for nodeblock {nodeblock_idx} layer {idx} successful: {boolean_val}")
             
         if (module.__class__.__name__ == 'BatchNorm1d'):
             boolean_val = torch.all(
                 module.state_dict()["running_mean"] == state_dict['model_state_dict'][mlp_name+f"{original_layer_idx}.running_mean"]
             )
-            print(f"running_mean loading for layer {idx} successful: {boolean_val}")
+            print(f"running_mean loading for nodeblock {nodeblock_idx} layer {idx} successful: {boolean_val}")
             
             boolean_val = torch.all(
                 module.state_dict()["running_var"] == state_dict['model_state_dict'][mlp_name+f"{original_layer_idx}.running_var"]
             )
-            print(f"running_var loading for layer {idx} successful: {boolean_val}")
+            print(f"running_var loading for nodeblock {nodeblock_idx} layer {idx} successful: {boolean_val}")
             
             
+
+"""
+siqi's model
+"""
+from Tau3MuGNNs.src.models import Model
+import torch
+
+config = {
+    "bn_input": True,                 # Batch normalization on input features? This is to normalize the input features
+  "n_layers": 8    ,                # Number of GNN layers
+  "out_channels": 128  ,            # Number of hidden channels for each GNN layer
+  "dropout_p": 0.5  ,               # Dropout probability
+  "readout": "pool"  ,                # Specify the method to use for the readout layer. One can also use 'lstm', 'vn' or 'jknet'
+  "norm_type": "batch"   ,            # Specify the type of normalization to use. One can also use 'instance', 'layer' or 'graph'
+  "deepgcn_aggr": "softmax"          # Aggregation function for the DeeperGCN layers. Please refer to their documentation for more details
+}
+x_dim = 3
+edge_attr_dim = 4
+
+model_siqi = Model(x_dim, edge_attr_dim, True, config).eval()
+
+state_dict = torch.load('./model.pt', map_location="cpu")
+
+# model = torch.jit.load('./model.pt', map_location="cpu")
+
+model_siqi.load_state_dict(state_dict['model_state_dict'])
+
+
+
+
 """
 forward_dict: defines the order in which graph-blocks are called in the model's 'forward()' method
 """
@@ -217,7 +247,8 @@ forward_dict["node_encoder_norm"] = "NodeEncoderBatchNorm1d"
 forward_dict["edge_encoder_norm"] = "EdgeEncoderBatchNorm1d"
 for nodeblock_idx in range(n_layers):
     forward_dict[f"O_{nodeblock_idx}"] = "NodeBlock"
-
+forward_dict["pool"] = "MeanPool"  
+forward_dict["fc_out"] = "fc_out"
 
 """
 we define additional parameters.
@@ -276,11 +307,21 @@ We are using Mean Squared Error (MSE) to calculate the differences
 in the output of the two models.
 """
 MSE_l = []
+batch = None
+siqi_data = None
 for data in graphs:
     torch_pred = torch_model(data)
     torch_pred = torch_pred.detach().cpu().numpy().flatten()
     hls_pred = hls_model.predict(data.hls_data)
+    siqi_pred = model_siqi(
+        x = data.x, edge_index = data.edge_index, edge_attr = data.edge_attr, batch = None, data = None
+    )
+    siqi_pred = siqi_pred.detach().cpu().numpy().flatten()
+    print(f"torch_pred.shape: {torch_pred.shape}")
+    print(f"hls_pred.shape: {hls_pred.shape}")
     MSE = mean_squared_error(torch_pred, hls_pred)
+#     print(np.testing.assert_almost_equal(torch_pred, hls_pred))
+    print(f"torch vs siqi: {mean_squared_error(torch_pred, siqi_pred)}")
     MSE_l.append(MSE)
 
 MSE_l = np.array(MSE_l)
@@ -299,8 +340,13 @@ for data in graphs:
     hls_pred = hls_model.predict(data.hls_data)
     MSE = mean_squared_error(torch_pred, hls_pred)
     MSEs.append(MSE)
+    siqi_pred = model_siqi(
+        x = data.x, edge_index = data.edge_index, edge_attr = data.edge_attr, batch = None, data = None
+    )
+    siqi_pred = siqi_pred.detach().cpu().numpy().flatten()
+    print(f"torch vs siqi: {mean_squared_error(torch_pred, siqi_pred)}")
     
-print(f"test_data MSEs: \n {MSEs}")
+print(f"MSEs: \n {MSEs}")
 
 
 
