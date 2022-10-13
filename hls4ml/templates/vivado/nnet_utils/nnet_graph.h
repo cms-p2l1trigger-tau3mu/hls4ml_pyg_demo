@@ -1312,6 +1312,7 @@ namespace nnet {
     #pragma HLS ARRAY_PARTITION variable=edge_aggr_mask complete dim=0
     data_T normalization_value[CONFIG_T::n_node][CONFIG_T::node_dim]; // Normalization value for softmax
     #pragma HLS ARRAY_PARTITION variable=normalization_value complete dim=0
+    
     for(int i=0; i<CONFIG_T::n_node; i++){
       #pragma HLS UNROLL
       num_edge_per_node[i] = 0;
@@ -1410,17 +1411,19 @@ namespace nnet {
         data_T beta = CONFIG_T::Beta;
         
         for(unsigned j = 0; j < CONFIG_T::edge_dim; j++){
-            #pragma HLS unroll
-            // unsigned x = softmax_idx_from_real_val<data_T, CONFIG_T>(
-            //   edge_attr[i][j] * beta // may have to convert Beta to data_T first
-            // );
-            // data_T exp_x = exp_table[x];
-            // data_T msg;
-            // #pragma HLS ARRAY_PARTITION variable=msg complete dim=0
+            //#pragma HLS unroll
+            unsigned x = softmax_idx_from_real_val<data_T, CONFIG_T>(
+               edge_attr[i][j] * beta // may have to convert Beta to data_T first
+             );
+            data_T exp_x = exp_table[x];
+            data_T msg;
+            #pragma HLS ARRAY_PARTITION variable=msg complete dim=0
             // nnet::relu<data_T, data_T, typename CONFIG_T>(edge_attr[i][j] + node_attr[s][j], data0);
+            
+            //explicit calculation of the exponentials:
             data_T eps = CONFIG_T::eps;
-            data_T msg =  relu_0D(edge_attr[i][j] + node_attr[s][j]) + eps;
-            data_T exp_x = exp_fcn_float(msg * beta);
+            msg =  relu_0D(edge_attr[i][j] + node_attr[s][j]) + eps;
+            //data_T exp_x = exp_fcn_float(msg * beta);
             edge_attr_aggr[r][j] += exp_x*msg;
             normalization_value[r][j] += exp_x;
             // std::cout << "index s: " << s << "\n";
@@ -1470,7 +1473,7 @@ namespace nnet {
     else if(CONFIG_T::aggr == aggr_softmax){
       for(int i=0; i < CONFIG_T::n_node; i++){
         for (int j=0; j<CONFIG_T::edge_dim; j++){
-          // #pragma HLS UNROLL
+          #pragma HLS UNROLL
           // res_T normalized_val_j;
           // nnet::edge_divide<res_T, index_T, res_T, CONFIG_T>(edge_attr_aggr[i][j], normalization_value[i], normalized_val_j);
           // edge_attr_aggr[i][j] = normalized_val_j;
