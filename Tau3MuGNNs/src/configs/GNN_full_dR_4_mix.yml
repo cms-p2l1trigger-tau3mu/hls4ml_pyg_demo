@@ -1,0 +1,49 @@
+data:
+  data_dir: ../data
+  log_dir: ../data/logs
+  add_self_loops: True
+  only_one_tau: True
+  splits:
+    train: 0.7
+    valid: 0.15
+    test: 0.15
+  pos_neg_ratio: 0.3
+  radius: 1.0
+  virtual_node: True
+
+  conditions: # on hits
+    1-mu_hit_station: '<=4'
+    2-mu_hit_neighbor: '==0'
+    3-mu_hit_type: '!=0'
+
+  node_feature_names:
+    - mu_hit_sim_z
+    - mu_hit_sim_eta
+    - mu_hit_bend
+  edge_feature_names:
+    - mu_hit_sim_z
+    - mu_hit_sim_eta
+    - mu_hit_bend
+    - mu_hit_sim_phi
+
+model:
+  bn_input: True
+  n_layers: 8
+  out_channels: 128
+  dropout_p: 0.5
+  readout: pool
+  norm_type: batch
+  deepgcn_aggr: softmax
+
+eval:
+  test_interval: 5
+  auroc_max_fpr: 0.001
+
+optimizer:
+  resume: False
+  lr: 1.0e-3
+  batch_size: 256
+  epochs: 500
+  focal_loss: True
+  focal_alpha: 0.8
+  focal_gamma: 5
