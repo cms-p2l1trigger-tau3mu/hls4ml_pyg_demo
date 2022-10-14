@@ -52,10 +52,11 @@ def number_of_parameters(model):
 We intialize our custom pytorch geometric(pyg) model
 """
 n_layers = 1
+out_channels = 1
 torch_model = GENConvBig(
     n_layers, 
     flow = "source_to_target",
-    out_channels = 32,
+    out_channels = out_channels,
     debugging = True
 ).eval() # eval mode for bathnorm
 
@@ -133,7 +134,7 @@ forward_dict["fc_out"] = "fc_out"
 """
 we define additional parameters.
 """
-common_dim = 32
+common_dim = out_channels
 graph_dims = {
         "n_node": 28,
         "n_edge": 37,
@@ -253,4 +254,3 @@ for data in graphs:
     
 print(f"MSEs: \n {MSEs}")
 print(f"Average MSEs: \n {np.mean(MSEs)}")
-
