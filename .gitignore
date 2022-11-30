@@ -3,3 +3,4 @@ tb_data
 debugging/*
 __pycache__
 *.pyc
+Tau3MuGNNs/src/configs/
