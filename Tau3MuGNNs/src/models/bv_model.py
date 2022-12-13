@@ -1,12 +1,15 @@
 import torch
 import torch.nn as nn
+from torch.nn import BatchNorm1d
 from torch_geometric.nn import InstanceNorm, LayerNorm, GraphNorm, global_mean_pool, global_add_pool, global_max_pool
 
 from .bv_gen_conv import GENConv
 import pandas as pd
+import copy
 
 # custom bv classes
 import brevitas.nn as qnn
+from brevitas.nn.utils import mul_add_from_bn
 from .custom_bv import BatchNorm1dToQuantScaleBias, getCustomQuantizer
 
 
@@ -157,6 +160,8 @@ class BV_Model(nn.Module):
                 pool_out = x[v_idx]
             elif self.readout == 'pool':
                 pool_out = self.pool(x, batch)
+            elif self.readout == 'sum':
+                pool_out = self.pool(x, batch)
         else:
             pool_out = self.pool(x, batch)
         out = self.fc_out(pool_out)
@@ -252,3 +257,42 @@ class BV_MLP(BatchSequential):
                 # )
 
         super(BV_MLP, self).__init__(*m)
+
+def _convertBnToBvbn(bn: BatchNorm1d, quantizer_dict: dict) -> BatchNorm1dToQuantScaleBias:
+    """
+    takes torch.nn batchnorm layer and returns an
+    equivaldent BatchNorm1dToQuantScaleBias layer
+    """
+    out = mul_add_from_bn(
+        bn_mean=bn.running_mean,
+        bn_var=bn.running_var,
+        bn_eps=bn.eps,
+        bn_weight=bn.weight.data.clone(),
+        bn_bias=bn.bias.data.clone())
+    mul_factor, add_factor = out
+    quant_bn = BatchNorm1dToQuantScaleBias(
+                    num_features= bn.num_features,
+                    weight_quant= quantizer_dict["weight"],
+                    bias_quant= quantizer_dict["bias"],
+                    input_quant= quantizer_dict["act"],
+                    output_quant= quantizer_dict["act"],
+                    return_quant_tensor= False
+    )
+    quant_bn.weight.data = mul_factor
+    quant_bn.bias.data = add_factor
+    return quant_bn
+
+def convertBnToBvbn(bv_model):
+    """
+    returns the bv_model defined above, but with torch batchnorm converted
+    to layers, and then the batchnorm values deleted
+    """
+    quantizer_dict = bv_model.ap_fixed_dict["norm"]
+    new_model = copy.deepcopy(bv_model)
+    new_model.bn_node_feature = _convertBnToBvbn(new_model.bn_node_feature, quantizer_dict)
+    new_model.bn_edge_feature = _convertBnToBvbn(new_model.bn_edge_feature, quantizer_dict)
+    for i in range(new_model.n_layers):
+        if type(new_model.mlps[i]) == nn.BatchNorm1d:
+            new_model.mlps[i] = _convertBnToBvbn(new_model.mlps[i], quantizer_dict)
+
+    return new_model
