@@ -14,7 +14,10 @@ from .custom_bv import BatchNorm1dToQuantScaleBias, getCustomQuantizer
 
 
 class BV_Model(nn.Module):
-    def __init__(self, x_dim, edge_attr_dim, virtual_node, model_config, quantization=False):
+    def __init__(
+        self, x_dim, edge_attr_dim, virtual_node, model_config,
+        quantization=False, debugging = False
+    ):
         print("bv model is being used")
         super(BV_Model, self).__init__()
         self.out_channels = model_config['out_channels']
@@ -25,6 +28,7 @@ class BV_Model(nn.Module):
         self.deepgcn_aggr = model_config['deepgcn_aggr']
         self.bn_input = model_config['bn_input']
         self.virtual_node = virtual_node
+        self.debugging = debugging
         # self.bn_quantization = model_config['bn_quantization']
         # ap_fixed setup for use in brevitas
         self.ap_fixed_dict = {}
@@ -136,9 +140,20 @@ class BV_Model(nn.Module):
         x = self.node_encoder(x)
         edge_attr = self.edge_encoder(edge_attr)
 
+        if self.debugging:
+            df = pd.DataFrame(x.value.detach().cpu().numpy())
+            df.to_csv(f"./debugging/siqi_node_encoder_output.csv", index=False) # for debugging
+            df = pd.DataFrame(edge_attr.value.detach().cpu().numpy())
+            df.to_csv(f"./debugging/siqi_edge_encoder_output.csv", index=False) # for debugging
+
         if self.bn_input:
             x = self.bn_node_feature(x)
             edge_attr = self.bn_edge_feature(edge_attr)
+            if self.debugging:
+                df = pd.DataFrame(x.detach().cpu().numpy())
+                df.to_csv(f"./debugging/siqi_node_encoder_norm_output.csv", index=False) # for debugging
+                df = pd.DataFrame(edge_attr.detach().cpu().numpy())
+                df.to_csv(f"./debugging/siqi_edge_encoder_norm_output.csv", index=False) # for debugging
 
         # # transform into quantensors
         # x = self.quant_identity(x)
@@ -150,6 +165,9 @@ class BV_Model(nn.Module):
             x = self.convs[i](x, edge_index, edge_attr=edge_attr, edge_atten=edge_atten)
             x = self.mlps[i](x, batch)
             x += identity
+            if self.debugging:
+                df = pd.DataFrame(x.detach().cpu().numpy())
+                df.to_csv(f"./debugging/siqi_layer{i}_residual_output.csv", index=False) 
 
         if self.virtual_node:
             if self.readout == 'lstm':
@@ -291,8 +309,12 @@ def convertBnToBvbn(bv_model):
     new_model = copy.deepcopy(bv_model)
     new_model.bn_node_feature = _convertBnToBvbn(new_model.bn_node_feature, quantizer_dict)
     new_model.bn_edge_feature = _convertBnToBvbn(new_model.bn_edge_feature, quantizer_dict)
-    for i in range(new_model.n_layers):
-        if type(new_model.mlps[i]) == nn.BatchNorm1d:
-            new_model.mlps[i] = _convertBnToBvbn(new_model.mlps[i], quantizer_dict)
+    for idx in range(new_model.n_layers):
+        mlp = new_model.mlps[idx]
+        for jdx in range(len(mlp)):
+            # print(f"layer: {idx}, mlp idx: {jdx}, type: {type(mlp[jdx])}")
+            if type(mlp[jdx]) == nn.BatchNorm1d:
+                # print("batchnorm1d triggered")
+                mlp[jdx] = _convertBnToBvbn(mlp[jdx], quantizer_dict)
 
     return new_model

@@ -21,15 +21,30 @@ import sys
 # import quant batchnorm1d
 sys.path.append('../../Tau3MuGNNs')
 from Tau3MuGNNs.src.models.custom_bv import BatchNorm1dToQuantScaleBias, getCustomQuantizer
+import brevitas.nn as qnn
 
 class ObjectModel(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size):
+    def __init__(self, input_size, output_size, hidden_size, quantizer_dict):
         super(ObjectModel, self).__init__()
 
         self.layers = nn.Sequential(
+            # qnn.QuantIdentity(
+            #     act_quant = quantizer_dict["act"],
+            #     return_quant_tensor= False
+            # ),
             nn.Linear(input_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
-            nn.ReLU(),
+            BatchNorm1dToQuantScaleBias(
+                hidden_size,
+                weight_quant= quantizer_dict["weight"],
+                bias_quant= quantizer_dict["bias"],
+                input_quant= quantizer_dict["act"],
+                output_quant= quantizer_dict["act"],
+                return_quant_tensor= False
+            ),
+            qnn.QuantReLU(
+                act_quant = quantizer_dict["act"],
+                return_quant_tensor = False
+            ),
             nn.Linear(hidden_size, output_size),
         )
 
@@ -82,6 +97,7 @@ class EdgeEncoderBatchNorm1d(nn.Module):
 class BvGENConvSmall(MessagePassing):
     def __init__(
             self, 
+            quantizer_dict,
             flow='source_to_target', 
             out_channels=128, 
             nodeblock = None,
@@ -91,11 +107,20 @@ class BvGENConvSmall(MessagePassing):
         super(BvGENConvSmall, self).__init__(flow=flow)
         self.out_channels = out_channels
         self.hidden_size = 2*self.out_channels
-
+        self.quantizer_dict = quantizer_dict
+        self.quant_identity = qnn.QuantIdentity(
+            act_quant = quantizer_dict["act"],
+            return_quant_tensor= False
+        )
         # self.res_block = ResidualBlock(self.out_channels)
         
         if nodeblock == None:
-            self.O = ObjectModel(self.out_channels, self.out_channels, self.hidden_size)
+            self.O = ObjectModel(
+                self.out_channels, 
+                self.out_channels, 
+                self.hidden_size, 
+                self.quantizer_dict
+            )
         else:
             self.O = nodeblock
 
@@ -188,12 +213,10 @@ class BvGENConvSmall(MessagePassing):
         # print(f"self.node_dim: {self.node_dim}")
         # print(f"index: {index}")
         # print(f"self.beta: {self.beta}")
-        out = scatter_softmax(inputs * self.beta, index, dim=self.node_dim)
-        # print(f"out: {out}")
-        
-        
-        output = scatter(inputs * out, index, dim=self.node_dim,
-                        dim_size=dim_size, reduce='sum')
+
+
+        output = scatter(inputs, index, dim=self.node_dim,
+                    dim_size=dim_size, reduce='sum')
         # print(f"aggregate output: {output}")
         if self.debugging:
             df = pd.DataFrame(output.cpu().numpy())
@@ -221,6 +244,7 @@ class BvGENConvSmall(MessagePassing):
 
         
         output = c
+        output = self.quant_identity(output)
         idx = 0
         for layer in self.O.layers:
             output_old = output
@@ -265,6 +289,10 @@ class BvGENConvBig(nn.Module):
         self.hidden_size = 2*self.out_channels
         self.node_encoder = nn.Linear(3, self.out_channels)
         self.edge_encoder = nn.Linear(4, self.out_channels)
+        self.quant_identity = qnn.QuantIdentity(
+                act_quant = self.quantizer_dict["act"],
+                return_quant_tensor= False
+        )
 
         self.node_encoder_norm = NodeEncoderBatchNorm1d(self.out_channels, self.quantizer_dict)
         self.edge_encoder_norm = EdgeEncoderBatchNorm1d(self.out_channels, self.quantizer_dict)
@@ -275,9 +303,17 @@ class BvGENConvBig(nn.Module):
             # this assigns a nodeblock variable to class variable with varying names
             layer_name = f'O_{idx}'
             # set attribute a certain name to make is easy for pyg_to_hls converter
-            setattr(self, layer_name, ObjectModel(self.out_channels, self.out_channels, self.hidden_size))
+            setattr(self, layer_name, 
+                ObjectModel(
+                    self.out_channels, 
+                    self.out_channels, 
+                    self.hidden_size,
+                    self.quantizer_dict
+                )
+            )
             gnn = BvGENConvSmall(
                 flow = self.flow, 
+                quantizer_dict = self.quantizer_dict,
                 out_channels = out_channels, 
                 nodeblock = getattr(self, layer_name),
                 id = idx,
@@ -296,7 +332,8 @@ class BvGENConvBig(nn.Module):
         with torch.no_grad():
             x = data.x
             # print(f"Node Encoder input {x}")
-            x = self.node_encoder(x)
+            x = self.node_encoder(self.quant_identity(x))
+            x = self.quant_identity(x)
             if self.debugging:
                 df = pd.DataFrame(x.cpu().numpy())
                 df.to_csv(f"./debugging/node_encoder_output.csv", index=False) 
@@ -310,7 +347,8 @@ class BvGENConvBig(nn.Module):
             
             edge_index, edge_attr = data.edge_index, data.edge_attr
             # print(f"Edge Encoder input {edge_attr}")
-            edge_attr = self.edge_encoder(edge_attr)
+            edge_attr = self.edge_encoder(self.quant_identity(edge_attr))
+            edge_attr = self.quant_identity(edge_attr)
             if self.debugging:
                 df = pd.DataFrame(edge_attr.cpu().numpy())
                 df.to_csv(f"./debugging/edge_encoder_output.csv", index=False) 
@@ -353,9 +391,12 @@ class BvGENConvBig(nn.Module):
 
             batch = None
             output = self.pool(residual, batch)
+            output = self.quant_identity(output)
             output = self.fc_out(output)
-            output = torch.sigmoid(output.flatten()) # final activation
-            return output
+            output = self.quant_identity(output)
+            output =  qnn.QuantSigmoid(act_quant=self.quantizer_dict["act"])(output) # final activation
+            # output = torch.sigmoid(output.flatten()) # final activation
+            return output.flatten()
 
 
     def SetDebugMode(self, debug_mode : bool):

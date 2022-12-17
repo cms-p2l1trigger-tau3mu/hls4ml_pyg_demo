@@ -19,7 +19,7 @@ from .custom_bv import  getCustomQuantizer
 class GENConv(MessagePassing):
 
     def __init__(self, in_channels: int, out_channels: int, model_config: dict,
-                 aggr: str = 'softmax', t: float = 1.0, learn_t: bool = False,
+                 aggr: str = 'softmax', t: float = 1.0, learn_t: bool = False, debugging = False,
                  p: float = 1.0, learn_p: bool = False, eps: float = 1e-7, id = 0, **kwargs):
 
         kwargs.setdefault('aggr', None)
@@ -53,7 +53,7 @@ class GENConv(MessagePassing):
         )
 
         self.act_quantizer = self.ap_fixed_dict["act"]
-
+        self.debugging = debugging
         
 
     def reset_parameters(self):
@@ -86,8 +86,9 @@ class GENConv(MessagePassing):
         return out
 
     def message(self, x_j: Tensor, edge_attr: OptTensor, edge_atten=None) -> Tensor:
-        # df = pd.DataFrame(x_j.detach().cpu().numpy())
-        # df.to_csv(f"./debugging/siqi_layer{self.id}_message_x_j.csv", index=False) # for debugging
+        if self.debugging:
+            df = pd.DataFrame(x_j.detach().cpu().numpy())
+            df.to_csv(f"./debugging/siqi_layer{self.id}_message_x_j.csv", index=False) # for debugging
         # Initialize quantizers
         quant_identity = qnn.QuantIdentity(
             act_quant= self.act_quantizer,
@@ -102,8 +103,9 @@ class GENConv(MessagePassing):
         msg = x_j if edge_attr is None else x_j + edge_attr
         # msg = F.relu(msg) + self.eps
         msg = quant_relu(msg)
-        # df = pd.DataFrame(msg.detach().cpu().numpy())
-        # df.to_csv(f"./debugging/siqi_layer{self.id}_message_output.csv", index=False) # for debugging
+        if self.debugging:
+            df = pd.DataFrame(msg.detach().cpu().numpy())
+            df.to_csv(f"./debugging/siqi_layer{self.id}_message_output.csv", index=False) # for debugging
         return msg
 
     def aggregate(self, inputs: Tensor, index: Tensor,
@@ -112,8 +114,9 @@ class GENConv(MessagePassing):
             out = scatter_softmax(inputs * self.t, index, dim=self.node_dim)
             out = scatter(inputs * out, index, dim=self.node_dim,
                            dim_size=dim_size, reduce='sum')
-            # df = pd.DataFrame(out.detach().cpu().numpy())
-            # df.to_csv(f"./debugging/siqi_layer{self.id}_aggregate_output.csv", index=False) # for debugging
+            if self.debugging:
+                df = pd.DataFrame(out.detach().cpu().numpy())
+                df.to_csv(f"./debugging/siqi_layer{self.id}_aggregate_output.csv", index=False) # for debugging
             return out
         elif self.aggr == 'max':
             return scatter(inputs, index, dim=self.node_dim,
