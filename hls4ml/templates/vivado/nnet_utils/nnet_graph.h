@@ -1179,7 +1179,7 @@ namespace nnet {
       //   std::cout << "nodeblock index i:" << i << ", j:" << j << ", phi_input:" << phi_input[j] << "\n";
       // }
 
-
+      // only n_layers == 2 is supported with normalization
       if(CONFIG_T::n_layers == 1){
       nnet::dense_mult_1lyr<data_T, res_T, CONFIG_T>(edge_attr_aggr[i], node_update[i], core_node_w0, core_node_b0);
       }

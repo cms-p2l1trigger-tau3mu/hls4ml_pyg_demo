@@ -102,7 +102,12 @@ class BV_Model(nn.Module):
             self.bn_edge_feature = nn.BatchNorm1d(self.out_channels)
 
         for idx in range(self.n_layers):
-            self.convs.append(GENConv(self.out_channels, self.out_channels, self.model_config, aggr=self.deepgcn_aggr, learn_t=True, learn_p=True, id = idx))
+            self.convs.append(GENConv(
+                self.out_channels, self.out_channels, self.model_config, 
+                aggr=self.deepgcn_aggr, learn_t=True, learn_p=True, id = idx,
+                debugging = self.debugging
+                )
+            )
             self.mlps.append(BV_MLP(channels, quantizer_dict=self.ap_fixed_dict["linear"], norm_type=self.norm_type, dropout=self.dropout_p))
 
 
@@ -142,18 +147,18 @@ class BV_Model(nn.Module):
 
         if self.debugging:
             df = pd.DataFrame(x.value.detach().cpu().numpy())
-            df.to_csv(f"./debugging/siqi_node_encoder_output.csv", index=False) # for debugging
+            df.to_csv(f"./debugging/bv_node_encoder_output.csv", index=False) # for debugging
             df = pd.DataFrame(edge_attr.value.detach().cpu().numpy())
-            df.to_csv(f"./debugging/siqi_edge_encoder_output.csv", index=False) # for debugging
+            df.to_csv(f"./debugging/bv_edge_encoder_output.csv", index=False) # for debugging
 
         if self.bn_input:
             x = self.bn_node_feature(x)
             edge_attr = self.bn_edge_feature(edge_attr)
             if self.debugging:
                 df = pd.DataFrame(x.detach().cpu().numpy())
-                df.to_csv(f"./debugging/siqi_node_encoder_norm_output.csv", index=False) # for debugging
+                df.to_csv(f"./debugging/bv_node_encoder_norm_output.csv", index=False) # for debugging
                 df = pd.DataFrame(edge_attr.detach().cpu().numpy())
-                df.to_csv(f"./debugging/siqi_edge_encoder_norm_output.csv", index=False) # for debugging
+                df.to_csv(f"./debugging/bv_edge_encoder_norm_output.csv", index=False) # for debugging
 
         # # transform into quantensors
         # x = self.quant_identity(x)
@@ -163,11 +168,17 @@ class BV_Model(nn.Module):
             identity = x
 
             x = self.convs[i](x, edge_index, edge_attr=edge_attr, edge_atten=edge_atten)
-            x = self.mlps[i](x, batch)
-            x += identity
             if self.debugging:
                 df = pd.DataFrame(x.detach().cpu().numpy())
-                df.to_csv(f"./debugging/siqi_layer{i}_residual_output.csv", index=False) 
+                df.to_csv(f"./debugging/bv_layer{i}_graphconv_output.csv", index=False)
+            x = self.mlps[i](x, batch)
+            if self.debugging:
+                df = pd.DataFrame(x.detach().cpu().numpy())
+                df.to_csv(f"./debugging/bv_layer{i}_mlp_output.csv", index=False)
+            x += identity # no need to quantize before hand as we asusme the two values are already quantized
+            if self.debugging:
+                df = pd.DataFrame(x.detach().cpu().numpy())
+                df.to_csv(f"./debugging/bv_layer{i}_residual_output.csv", index=False) 
 
         if self.virtual_node:
             if self.readout == 'lstm':
@@ -182,8 +193,15 @@ class BV_Model(nn.Module):
                 pool_out = self.pool(x, batch)
         else:
             pool_out = self.pool(x, batch)
+
+        if self.debugging:
+            df = pd.DataFrame(pool_out.detach().cpu().numpy())
+            df.to_csv(f"./debugging/bv_pool_output.csv", index=False) # for debugging
         out = self.fc_out(pool_out)
         out = qnn.QuantSigmoid(act_quant=self.ap_fixed_dict["linear"]["act"])(out)
+        if self.debugging:
+            df = pd.DataFrame(out.detach().cpu().numpy())
+            df.to_csv(f"./debugging/bv_final_output.csv", index=False)
         return out
 
     def get_emb(self, x, edge_index, edge_attr, batch, data):
@@ -318,3 +336,16 @@ def convertBnToBvbn(bv_model):
                 mlp[jdx] = _convertBnToBvbn(mlp[jdx], quantizer_dict)
 
     return new_model
+
+
+# def _changeQuantizer(bv_module, quantizer):
+#     bv_module.__
+
+# def changeQuantizer(bv_model, quantizer):
+#     """
+#     returns the bv_model defined above, but with different
+#     explicit quantizer
+#     """
+#     new_model = copy.deepcopy(bv_model)
+#     # go over all bv layers and change the quantizers
+    

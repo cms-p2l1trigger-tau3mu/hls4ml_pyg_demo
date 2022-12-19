@@ -69,15 +69,15 @@ class GENConv(MessagePassing):
         return out
 
     def message(self, x_j: Tensor, edge_attr: OptTensor, edge_atten=None) -> Tensor:
-        df = pd.DataFrame(x_j.detach().cpu().numpy())
-        df.to_csv(f"./debugging/siqi_layer{self.id}_message_x_j.csv", index=False) # for debugging
+        # df = pd.DataFrame(x_j.detach().cpu().numpy())
+        # df.to_csv(f"./debugging/siqi_layer{self.id}_message_x_j.csv", index=False) # for debugging
 
         msg = x_j if edge_attr is None else x_j + edge_attr
         msg = F.relu(msg) + self.eps
         if edge_atten is not None:
             msg = msg * edge_atten
-        df = pd.DataFrame(msg.detach().cpu().numpy())
-        df.to_csv(f"./debugging/siqi_layer{self.id}_message_output.csv", index=False) # for debugging
+        # df = pd.DataFrame(msg.detach().cpu().numpy())
+        # df.to_csv(f"./debugging/siqi_layer{self.id}_message_output.csv", index=False) # for debugging
         return msg
 
     def aggregate(self, inputs: Tensor, index: Tensor,
@@ -87,8 +87,8 @@ class GENConv(MessagePassing):
             out = scatter_softmax(inputs * self.t, index, dim=self.node_dim)
             out = scatter(inputs * out, index, dim=self.node_dim,
                            dim_size=dim_size, reduce='sum')
-            df = pd.DataFrame(out.detach().cpu().numpy())
-            df.to_csv(f"./debugging/siqi_layer{self.id}_aggregate_output.csv", index=False) # for debugging
+            # df = pd.DataFrame(out.detach().cpu().numpy())
+            # df.to_csv(f"./debugging/siqi_layer{self.id}_aggregate_output.csv", index=False) # for debugging
             return out
         elif self.aggr == 'max':
             return scatter(inputs, index, dim=self.node_dim,

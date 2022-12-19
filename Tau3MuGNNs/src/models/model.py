@@ -9,7 +9,7 @@ import pandas as pd
 class Model(nn.Module):
     def __init__(self, x_dim, edge_attr_dim, virtual_node, model_config):
         super(Model, self).__init__()
-        print(f"testing")
+        print(f"non bv model")
         self.out_channels = model_config['out_channels']
         self.n_layers = model_config['n_layers']
         self.dropout_p = model_config['dropout_p']
@@ -55,10 +55,10 @@ class Model(nn.Module):
         x = self.node_encoder(x)
         edge_attr = self.edge_encoder(edge_attr)
 
-        df = pd.DataFrame(x.detach().cpu().numpy())
-        df.to_csv(f"./debugging/siqi_node_encoder_output.csv", index=False) # for debugging
-        df = pd.DataFrame(edge_attr.detach().cpu().numpy())
-        df.to_csv(f"./debugging/siqi_edge_encoder_output.csv", index=False) # for debugging
+        # df = pd.DataFrame(x.detach().cpu().numpy())
+        # df.to_csv(f"./debugging/siqi_node_encoder_output.csv", index=False) # for debugging
+        # df = pd.DataFrame(edge_attr.detach().cpu().numpy())
+        # df.to_csv(f"./debugging/siqi_edge_encoder_output.csv", index=False) # for debugging
 
         # if node_atten is not None:
         #     assert edge_atten is not None
@@ -66,13 +66,13 @@ class Model(nn.Module):
         #     edge_attr = edge_atten * edge_attr
 
         if self.bn_input:
-            print(f"self.bn_input: {self.bn_input}")
+            # print(f"self.bn_input: {self.bn_input}")
             x = self.bn_node_feature(x)
             edge_attr = self.bn_edge_feature(edge_attr)
-            df = pd.DataFrame(x.detach().cpu().numpy())
-            df.to_csv(f"./debugging/siqi_node_encoder_norm_output.csv", index=False) # for debugging
-            df = pd.DataFrame(edge_attr.detach().cpu().numpy())
-            df.to_csv(f"./debugging/siqi_edge_encoder_norm_output.csv", index=False) # for debugging
+            # df = pd.DataFrame(x.detach().cpu().numpy())
+            # df.to_csv(f"./debugging/siqi_node_encoder_norm_output.csv", index=False) # for debugging
+            # df = pd.DataFrame(edge_attr.detach().cpu().numpy())
+            # df.to_csv(f"./debugging/siqi_edge_encoder_norm_output.csv", index=False) # for debugging
 
         
 
@@ -93,8 +93,8 @@ class Model(nn.Module):
             
             x += identity
             # print(f"layer {i} output: {x}")
-            df = pd.DataFrame(x.detach().cpu().numpy())
-            df.to_csv(f"./debugging/siqi_layer{i}_residual_output.csv", index=False) 
+            # df = pd.DataFrame(x.detach().cpu().numpy())
+            # df.to_csv(f"./debugging/siqi_layer{i}_residual_output.csv", index=False) 
 
         if self.virtual_node:
             if self.readout == 'lstm':

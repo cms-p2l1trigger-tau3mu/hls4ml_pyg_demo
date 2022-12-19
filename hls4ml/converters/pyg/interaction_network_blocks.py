@@ -185,6 +185,35 @@ def parse_fc_out(block_name, config, update_dict, index, n_node, n_edge, node_di
     
     return layer_dict, update_dict
 
+@pyg_handler('BvNodeEncoderBatchNorm1d')
+def parse_BvNodeEncoderBatchNorm1d(block_name, config, update_dict, index, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr):
+    layer_dict = {
+                "name": f"node_encoder_norm",
+                "class_name": "QuantScaleBias", 
+                "n_rows" : n_node,
+                "n_in": node_dim, #interchangeable with edge_dim
+                "n_filt" : -1,
+                "inputs": [update_dict["last_node_update"]],
+                "outputs": [f"layer{index}_out"]}
+    update_dict["last_node_update"] = f"layer{index}_out" 
+    # print(f"NodeEncoderBatchNorm1d node_dim: {node_dim}")
+    return layer_dict, update_dict
+
+@pyg_handler('BvEdgeEncoderBatchNorm1d')
+def parse_BvEdgeEncoderBatchNorm1d(block_name, config, update_dict, index, n_node, n_edge, node_dim, edge_dim, node_attr, edge_attr):
+    layer_dict = {
+                "name": f"edge_encoder_norm",
+                "class_name": "QuantScaleBias", 
+                "n_rows" : n_edge,
+                "n_in": edge_dim, #interchangeable with node_dim
+                "n_filt" : -1,
+                "inputs": [update_dict["last_edge_update"]],
+                "outputs": [f"layer{index}_out"]}
+    update_dict["last_edge_update"] = f"layer{index}_out" 
+    # print(f"EdgeEncoderBatchNorm1d node_dim: {edge_dim}")
+    return layer_dict, update_dict
+
+
 """
 note: 
 -parse nodeblock, edgeblock and edgaggregates don't need node_dim nor edge_dims anymore

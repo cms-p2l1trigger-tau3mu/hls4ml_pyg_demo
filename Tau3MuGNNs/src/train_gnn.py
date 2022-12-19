@@ -5,7 +5,7 @@ from datetime import datetime
 from tqdm import tqdm
 from pathlib import Path
 
-from models import Model
+from models import Model, BV_Model
 from utils import Criterion, Writer, log_epoch, load_checkpoint, save_checkpoint, set_seed, get_data_loaders, add_cuts_to_config
 
 
@@ -18,7 +18,10 @@ class Tau3MuGNNs:
         self.writer = Writer(log_path)
 
         self.data_loaders, x_dim, edge_attr_dim, _ = get_data_loaders(setting, config['data'], config['optimizer']['batch_size'])
-        self.model = Model(x_dim, edge_attr_dim, config['data']['virtual_node'], config['model'])
+        if config['model']["quantization"]:
+            self.model = BV_Model(x_dim, edge_attr_dim, config['data']['virtual_node'], config['model'])
+        else:
+            self.model = Model(x_dim, edge_attr_dim, config['data']['virtual_node'], config['model'])
         self.model.to(self.device)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config['optimizer']['lr'])
         self.criterion = Criterion(config['optimizer'])
@@ -79,7 +82,8 @@ class Tau3MuGNNs:
             if epoch % self.config['eval']['test_interval'] == 0:
                 valid_res = self.run_one_epoch(self.data_loaders['valid'], epoch, 'valid')
                 test_res = self.run_one_epoch(self.data_loaders['test'], epoch, 'test')
-                if valid_res[-1] > best_val_recall:
+                # print(f"valid_res: {valid_res}")
+                if valid_res[-1] >= best_val_recall:
                     save_checkpoint(self.model, self.optimizer, self.log_path, epoch)
                     best_val_recall, best_test_recall, best_epoch = valid_res[-1], test_res[-1], epoch
 
@@ -104,7 +108,9 @@ def main():
     torch.set_num_threads(5)
     set_seed(42)
     time = datetime.now().strftime("%m_%d_%Y_%H_%M_%S")
-    config = yaml.safe_load(Path(f'./configs/{setting}.yml').open('r'))
+    config_path = f'./configs/{setting}.yml' # normal path
+    config = yaml.safe_load(Path(config_path).open('r'))
+    
     config = add_cuts_to_config(config, cut_id)
     device = torch.device(f'cuda:{cuda_id}' if cuda_id >= 0 else 'cpu')
 
@@ -113,12 +119,13 @@ def main():
 
     log_path = Path(config['data']['log_dir']) / log_name
     log_path.mkdir(parents=True, exist_ok=True)
-    shutil.copy(f'./configs/{setting}.yml', log_path / 'config.yml')
+    shutil.copy(config_path, log_path / 'config.yml')
 
+    print(f"config yml: {config}")
     Tau3MuGNNs(config, device, log_path, setting).train()
 
 
 if __name__ == '__main__':
     import os
-    os.chdir('./src')
+    # os.chdir('./src')
     main()

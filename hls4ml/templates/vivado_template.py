@@ -572,6 +572,7 @@ class VivadoBackend(Backend):
         self.register_templates('EdgeEncoder'            , encoder_function_template,       encoder_config_template, nodeblock_include_list)
         self.register_templates('BatchNorm2D'     , batchnorm2d_function_template,   batchnorm2d_config_template, batchnorm_include_list)
         self.register_templates('MeanPool'     , mean_pool_function_template,   mean_pool_config_template, mean_pool_include_list)
+        self.register_templates('QuantScaleBias'     , batchnorm2d_function_template,   batchnorm2d_config_template, batchnorm_include_list)
 
     def create_initial_config(self, part='xcku115-flvb2104-2-i', board=None, clock_period=5, io_type='io_parallel'):
         config = {}

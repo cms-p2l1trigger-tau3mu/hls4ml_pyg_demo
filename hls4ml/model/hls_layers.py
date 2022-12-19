@@ -1494,6 +1494,39 @@ class BatchNorm2D(Layer):
         params['gnn_resource_limit'] = 'false'
         return self._config_template.format(**params)
 
+class QuantScaleBias(Layer):
+    """
+    Similar to batchnormalization, but with already scale and
+    bias parameters
+    """
+    def initialize(self):
+        # print(f"batchnorm 2d initialized")
+        inp = self.get_input_variable()
+        shape = inp.shape
+        dims = inp.dim_names
+        self.add_output_variable(shape, dims)
+
+        # print(f"batchnorm self.name: {self.name}")
+        scale = self.model.get_weights_data(self.name, 'weight')
+        bias = self.model.get_weights_data(self.name, 'bias')
+        self.add_weights_variable(name='scale', var_name='s{index}', data=scale)
+        self.add_weights_variable(name='bias', var_name='b{index}', data=bias)
+
+    def function_cpp(self):
+        params = self._default_function_params()
+        params['scale'] = self.get_weights('scale').name
+        params['bias'] = self.get_weights('bias').name
+
+        return [self._function_template.format(**params)]
+
+    def config_cpp(self):
+        params = self._default_config_params()
+        # print(f"BatchNormalization params: {params}")
+        # params['n_in'] = self.get_input_variable().size_cpp()
+        params['product_type'] = self.model.config.backend.product_type(self.get_input_variable().type.precision, self.get_weights('scale').type.precision)
+        params['gnn_resource_limit'] = 'false'
+        return self._config_template.format(**params)
+
 
 class Merge(Layer):
     def initialize(self):
@@ -2063,9 +2096,24 @@ class GraphBlock(Layer): #parent class for EdgeBlock, NodeBlock
                 self.add_weights_variable(name=var_name, var_name=var_name, data=bias, quantizer=quantizer,
                                               compression=compression)
                 norm_count += 1
-            
+            elif module.__class__.__name__ == 'BatchNorm1dToQuantScaleBias':
+                # print(f"add_weights BatchNorm1d activated")
+                # print(self.name+f".layers.{layer_count}")
+                batchnorm_name = self.name+f".layers.{layer_count}"
+                scale = self.model.get_weights_data(batchnorm_name, 'weight')
+                bias = self.model.get_weights_data(batchnorm_name, 'bias')
+
+                var_name = f"{self.name}_norm_s{norm_count}"
+                self.add_weights_variable(name=var_name, var_name=var_name, data=scale, quantizer=quantizer,
+                                              compression=compression)
+                var_name = f"{self.name}_norm_b{norm_count}"
+                self.add_weights_variable(name=var_name, var_name=var_name, data=bias, quantizer=quantizer,
+                                              compression=compression)
+                norm_count += 1
             elif module.__class__.__name__ == 'Sequential':
                 continue
+            else:
+                print(f"ERROR: supported GraphBlock module: {module.__class__.__name__}")
             layer_count += 1
 
         # DUMMIES
@@ -2212,6 +2260,15 @@ class GraphBlock(Layer): #parent class for EdgeBlock, NodeBlock
                 norm_params = self.get_batchnorm_params(module, norm_count)
                 norm_config = self.config_layer('BatchNormalization', norm_params) #I think it is supposed to be hls_layer name?
                 configs[f"batchnorm_config{norm_count}"] = norm_config
+                last_n_out = norm_params['n_in']
+                # print(f"batchnorm configs: {norm_config}")
+
+            elif module.__class__.__name__ == "BatchNorm1dToQuantScaleBias":
+                # print("BatchNorm1dToQuantScaleBias")
+                norm_count += 1
+                norm_params = self.get_batchnorm_params(module, norm_count)
+                norm_config = self.config_layer('BatchNormalization', norm_params) #I think it is supposed to be hls_layer name?
+                configs[f"scalebias_config{norm_count}"] = norm_config
                 last_n_out = norm_params['n_in']
                 # print(f"batchnorm configs: {norm_config}")
 
@@ -2949,6 +3006,7 @@ layer_map = {
     'EdgeEncoder'          : EdgeEncoder,
     'BatchNorm2D'          : BatchNorm2D,
     'MeanPool'            : MeanPool,
+    "QuantScaleBias" : QuantScaleBias,
     # TensorFlow-specific layers:
     'BiasAdd'                : BiasAdd,
 }

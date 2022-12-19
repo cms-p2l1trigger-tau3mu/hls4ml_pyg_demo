@@ -22,9 +22,11 @@ import sys
 sys.path.append('../../Tau3MuGNNs')
 from Tau3MuGNNs.src.models.custom_bv import BatchNorm1dToQuantScaleBias, getCustomQuantizer
 import brevitas.nn as qnn
+import copy
+from typing import Type
 
 class ObjectModel(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size, quantizer_dict):
+    def __init__(self, input_size, output_size, hidden_size, quantizer_dict, bias = True):
         super(ObjectModel, self).__init__()
         self.quant_identity = qnn.QuantIdentity(
                 act_quant = quantizer_dict["act"],
@@ -35,7 +37,14 @@ class ObjectModel(nn.Module):
             #     act_quant = quantizer_dict["act"],
             #     return_quant_tensor= False
             # ),
-            nn.Linear(input_size, hidden_size),
+            qnn.QuantLinear(
+                input_size, hidden_size,
+                bias=bias,
+                weight_quant= quantizer_dict["weight"],
+                bias_quant= quantizer_dict["bias"],
+                input_quant= quantizer_dict["act"],
+                output_quant= quantizer_dict["act"],
+            ),
             # qnn.QuantIdentity(
             #     act_quant = quantizer_dict["act"],
             #     return_quant_tensor= False
@@ -52,7 +61,14 @@ class ObjectModel(nn.Module):
                 act_quant = quantizer_dict["act"],
                 return_quant_tensor = False
             ),
-            nn.Linear(hidden_size, output_size),
+            qnn.QuantLinear(
+                hidden_size, output_size,
+                bias=bias,
+                weight_quant= quantizer_dict["weight"],
+                bias_quant= quantizer_dict["bias"],
+                input_quant= quantizer_dict["act"],
+                output_quant= quantizer_dict["act"],
+            ),
         )
 
     def forward(self, C):
@@ -60,12 +76,12 @@ class ObjectModel(nn.Module):
 
 
 
-class NodeEncoderBatchNorm1d(nn.Module):
+class BvNodeEncoderBatchNorm1d(nn.Module):
     """
     output shape should be same as the input shape
     """
     def __init__(self, input_size, quantizer_dict):
-        super(NodeEncoderBatchNorm1d, self).__init__()
+        super(BvNodeEncoderBatchNorm1d, self).__init__()
         self.norm = BatchNorm1dToQuantScaleBias(
             input_size,
             weight_quant= quantizer_dict["weight"],
@@ -80,12 +96,12 @@ class NodeEncoderBatchNorm1d(nn.Module):
 
 
 
-class EdgeEncoderBatchNorm1d(nn.Module):
+class BvEdgeEncoderBatchNorm1d(nn.Module):
     """
     output shape should be same as the input shape
     """
     def __init__(self, input_size, quantizer_dict):
-        super(EdgeEncoderBatchNorm1d, self).__init__()
+        super(BvEdgeEncoderBatchNorm1d, self).__init__()
         self.norm = BatchNorm1dToQuantScaleBias(
             input_size,
             weight_quant= quantizer_dict["weight"],
@@ -299,15 +315,30 @@ class BvGENConvBig(nn.Module):
         self.out_channels = out_channels
         self.quantizer_dict = getCustomQuantizer(int_bitwidth, fractional_bitwidth)
         self.hidden_size = 2*self.out_channels
-        self.node_encoder = nn.Linear(3, self.out_channels)
-        self.edge_encoder = nn.Linear(4, self.out_channels)
+        self.node_encoder = qnn.QuantLinear(
+            3, self.out_channels,
+            bias= True,
+            weight_quant= self.quantizer_dict["weight"],
+            bias_quant= self.quantizer_dict["bias"],
+            input_quant= self.quantizer_dict["act"],
+            output_quant= self.quantizer_dict["act"],
+        )
+        self.edge_encoder = qnn.QuantLinear(
+            4, self.out_channels,
+            bias= True,
+            weight_quant= self.quantizer_dict["weight"],
+            bias_quant= self.quantizer_dict["bias"],
+            input_quant= self.quantizer_dict["act"],
+            output_quant= self.quantizer_dict["act"],
+        )
+        
         self.quant_identity = qnn.QuantIdentity(
                 act_quant = self.quantizer_dict["act"],
                 return_quant_tensor= False
         )
 
-        self.node_encoder_norm = NodeEncoderBatchNorm1d(self.out_channels, self.quantizer_dict)
-        self.edge_encoder_norm = EdgeEncoderBatchNorm1d(self.out_channels, self.quantizer_dict)
+        self.node_encoder_norm = BvNodeEncoderBatchNorm1d(self.out_channels, self.quantizer_dict)
+        self.edge_encoder_norm = BvEdgeEncoderBatchNorm1d(self.out_channels, self.quantizer_dict)
 
         self.gnns = nn.ModuleList() # this is where we keep our GNN layers
         # automate nodeblock creation
@@ -335,7 +366,15 @@ class BvGENConvBig(nn.Module):
         assert(len(self.gnns) == self.n_layers)
 
         self.pool = global_mean_pool
-        self.fc_out =  nn.Linear(self.out_channels, 1)
+        self.fc_out =  qnn.QuantLinear(
+            self.out_channels, 1,
+            bias= True,
+            weight_quant= self.quantizer_dict["weight"],
+            bias_quant= self.quantizer_dict["bias"],
+            input_quant= self.quantizer_dict["act"],
+            output_quant= self.quantizer_dict["act"],
+        )
+        
 
 
         
@@ -423,3 +462,60 @@ class BvGENConvBig(nn.Module):
         self.debugging = debug_mode
         for gnn in self.gnns:
             gnn.debugging = debug_mode
+
+
+def _convertBvToTorch(module):
+    """
+    NOTE: not so sure converting quant activations matter,
+    Since I think pyg_to_hls only copies the weights and biases
+    """
+    new_module = None
+    if (module.__class__.__name__ == 'QuantLinear'):
+        new_module = nn.Linear(
+            module.in_features,
+            module.out_features,
+        )
+        # load weights and biases
+        new_module.weight = nn.Parameter(
+            module.quant_weight().value
+        )
+
+        new_module.bias = nn.Parameter(
+        module.quant_bias().value
+        )
+    elif (module.__class__.__name__ == 'QuantReLU'):
+        new_module = nn.ReLU()
+    elif (module.__class__.__name__ == 'QuantSigmoid'):
+        new_module = nn.Sigmoid()
+    elif (module.__class__.__name__ == 'BatchNorm1dToQuantScaleBias'):
+        # keep the module as it is, but keep the weights and bias
+        # as quantized
+        new_module = copy.deepcopy(module)
+        new_module.weight = nn.Parameter(
+            module.quant_weight().value
+        )
+        new_module.bias = nn.Parameter(
+            module.quant_bias().value
+        )
+    else:
+        print(f"ERROR: supported module: {module.__class__.__name__}")
+    
+    
+    return new_module
+
+
+def convertBvToTorch(model: BvGENConvBig):
+    new_model = copy.deepcopy(model)
+    new_model.node_encoder = _convertBvToTorch(model.node_encoder)
+    new_model.edge_encoder = _convertBvToTorch(model.edge_encoder)
+    for idx in range(new_model.n_layers):
+        gnn = new_model.gnns[idx]
+        gnn_mlp = gnn.O
+        for jdx in range(len(gnn_mlp.layers)):
+            gnn_mlp.layers[jdx] = _convertBvToTorch(gnn_mlp.layers[jdx])
+
+    new_model.fc_out = _convertBvToTorch(model.fc_out)
+
+    return new_model
+
+

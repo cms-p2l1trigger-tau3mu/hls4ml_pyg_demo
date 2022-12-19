@@ -88,7 +88,7 @@ class GENConv(MessagePassing):
     def message(self, x_j: Tensor, edge_attr: OptTensor, edge_atten=None) -> Tensor:
         if self.debugging:
             df = pd.DataFrame(x_j.detach().cpu().numpy())
-            df.to_csv(f"./debugging/siqi_layer{self.id}_message_x_j.csv", index=False) # for debugging
+            df.to_csv(f"./debugging/bv_layer{self.id}_message_x_j.csv", index=False) # for debugging
         # Initialize quantizers
         quant_identity = qnn.QuantIdentity(
             act_quant= self.act_quantizer,
@@ -105,7 +105,7 @@ class GENConv(MessagePassing):
         msg = quant_relu(msg)
         if self.debugging:
             df = pd.DataFrame(msg.detach().cpu().numpy())
-            df.to_csv(f"./debugging/siqi_layer{self.id}_message_output.csv", index=False) # for debugging
+            df.to_csv(f"./debugging/bv_layer{self.id}_message_output.csv", index=False) # for debugging
         return msg
 
     def aggregate(self, inputs: Tensor, index: Tensor,
@@ -116,7 +116,7 @@ class GENConv(MessagePassing):
                            dim_size=dim_size, reduce='sum')
             if self.debugging:
                 df = pd.DataFrame(out.detach().cpu().numpy())
-                df.to_csv(f"./debugging/siqi_layer{self.id}_aggregate_output.csv", index=False) # for debugging
+                df.to_csv(f"./debugging/bv_layer{self.id}_aggregate_output.csv", index=False) # for debugging
             return out
         elif self.aggr == 'max':
             return scatter(inputs, index, dim=self.node_dim,

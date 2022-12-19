@@ -23,9 +23,10 @@ class Tau3MuGNNs:
         self.model = BV_Model(x_dim, edge_attr_dim, config['data']['virtual_node'], config['model'])
         load_model_pth = config['model']['saved_model_path']
         state_dict = torch.load(load_model_pth)
+        self.model = convertBnToBvbn(self.model)
         self.model.load_state_dict(state_dict['model_state_dict'])
         # convert the torch bn into quant bn
-        self.model = convertBnToBvbn(self.model)
+        
         self.model.to(self.device)
 
 
