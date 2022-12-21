@@ -34,8 +34,8 @@ class Tau3MuGNNs:
         self.model = BV_Model(x_dim, edge_attr_dim, config['data']['virtual_node'], config['model'])
         self.load_model_pth = Path(config['model']['saved_model_path'])
         state_dict = torch.load(self.load_model_pth / 'model.pt', map_location=self.device)
-        self.load_model_best_val_recall = state_dict['best_val_recall']
-        print(f"state_dict['best_val_recall']: {state_dict['best_val_recall']}")
+        # self.load_model_best_val_recall = state_dict['best_val_recall@1kHz']
+        print(f"state_dict['best_val_recall@1kHz']: {state_dict['best_val_recall@1kHz']}")
         # convert the torch bn into quant bn
         self.model = convertBnToBvbn(self.model)
         self.model.load_state_dict(state_dict['model_state_dict'])
