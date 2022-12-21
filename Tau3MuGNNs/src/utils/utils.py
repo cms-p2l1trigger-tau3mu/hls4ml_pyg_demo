@@ -9,8 +9,14 @@ def load_checkpoint(model, optimizer, log_path, device):
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     start_epoch = checkpoint['epoch'] + 1
-    best_val_recall = checkpoint['best_val_recall@1kHz']
-    best_val_auroc = checkpoint['best_val_auroc']
+    if 'best_val_recall@1kHz' in checkpoint.keys():
+        best_val_recall = checkpoint['best_val_recall@1kHz']
+    else:
+        best_val_recall = None
+    if 'best_val_auroc' in checkpoint.keys():
+        best_val_auroc = checkpoint['best_val_auroc']
+    else:
+        best_val_auroc = None
     return (start_epoch, [best_val_recall, best_val_auroc])
 
 

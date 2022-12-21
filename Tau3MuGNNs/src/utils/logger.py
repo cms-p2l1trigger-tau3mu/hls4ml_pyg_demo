@@ -48,13 +48,14 @@ def log_epoch(epoch, phase, loss_dict, clf_probs, clf_labels, batch, writer=None
     partial_auroc = metrics.roc_auc_score(clf_labels, clf_probs, max_fpr=0.001)
     fpr, recall, thres = metrics.roc_curve(clf_labels, clf_probs)
     # indices = get_idx_for_interested_fpr(fpr, [0.001, 0.001/10])
-    # print(f"fpr: {fpr}")
-    # print(f"recall: {recall}")
-    # print(f"thres: {thres}")
+    print(f"fpr: {fpr}")
+    print(f"recall: {recall}")
+    print(f"thres: {thres}")
     norm_factor = 31e6 # 31 MHz
     interested_rates = [1e3, 10e3, 30e3] # 1kHz, 10 kHz, 30 kHz
     interested_fprs = [rate/norm_factor for rate in interested_rates]
     indices = get_idx_for_interested_fpr(fpr, interested_fprs)
+    interested_recalls = get_recall_for_interested_fpr(fpr, recall, interested_fprs)
 
 
     if writer is not None:
@@ -76,7 +77,9 @@ def log_epoch(epoch, phase, loss_dict, clf_probs, clf_labels, batch, writer=None
     fig = PlotCM(confusion_matrix=cm, display_labels=['Neg', 'Pos']).plot(cmap=plt.cm.Blues).figure_
     if writer is not None: writer.add_figure(f'Confusion Matrix - max_fpr_over_10/{phase}', fig, epoch)
 
-    desc += f'auroc: {auroc:.3f}, recall@1kHz: {recall[indices[0]]:.3f}'
+    desc += f'auroc: {auroc:.3f}, '
+    # desc += f'recall@1kHz: {recall[indices[0]]:.4f}, recall@10kHz: {recall[indices[1]]:.4f}, recall@30kHz: {recall[indices[2]]:.4f}'
+    desc += f'recall@1kHz: {interested_recalls[0]:.4f}, recall@10kHz: {interested_recalls[1]:.4f}, recall@30kHz: {interested_recalls[2]:.4f}'
 
 
     if exp_probs is not None and exp_labels is not None and -1 not in exp_labels and -1 not in exp_probs:
@@ -107,6 +110,27 @@ def get_idx_for_interested_fpr(fpr, interested_fpr):
     assert len(res) == len(interested_fpr)
     return res
 
+def get_recall_for_interested_fpr(fpr_l, recall_l, interested_fprs: list):
+    """
+    We take into account that sklearn roc_curve skips threshold that
+    aren't interesting, and we use linear projection to estimate proper
+    recall value 
+    """
+    interested_recalls = []
+    for interested_fpr_val in interested_fprs:
+        for i in range(1, fpr_l.shape[0]):
+            if fpr_l[i] > interested_fpr_val:
+                x_start = fpr_l[i-1]
+                x_end = fpr_l[i]
+                y_start = recall_l[i-1]
+                y_end = recall_l[i]
+                grad = (y_end-y_start) / (x_end-x_start)
+                x = interested_fpr_val - x_start
+                interested_recall_val = grad*x + y_start
+                interested_recalls.append(interested_recall_val)
+                break
+    assert len(interested_recalls) == len(interested_fprs)
+    return interested_recalls
 
 class Writer(SummaryWriter):
     def add_hparams(self, hparam_dict, metric_dict, hparam_domain_discrete=None, run_name=None):

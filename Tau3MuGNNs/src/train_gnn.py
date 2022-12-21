@@ -26,6 +26,8 @@ class Tau3MuGNNs:
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config['optimizer']['lr'])
         self.criterion = Criterion(config['optimizer'])
         print(f'[INFO] Number of trainable parameters: {sum(p.numel() for p in self.model.parameters())}')
+        print(f"[INFO] Target int bitwidth: {config['model']['linear_ap_fixed_int']}")
+        print(f"[INFO] Target fract bitwidth: {config['model']['linear_ap_fixed_fract']}")
 
     @torch.no_grad()
     def eval_one_batch(self, data):
@@ -53,7 +55,10 @@ class Tau3MuGNNs:
 
         all_loss_dict, all_clf_probs, all_clf_labels = {}, [], []
         pbar = tqdm(data_loader, total=loader_len)
+        break_len = 50
         for idx, data in enumerate(pbar):
+            if idx == break_len:
+                break
             loss_dict, clf_probs = run_one_batch(data.to(self.device))
 
             desc = log_epoch(epoch, phase, loss_dict, clf_probs, data.y.data.cpu(), batch=True)
@@ -61,7 +66,8 @@ class Tau3MuGNNs:
                 all_loss_dict[k] = all_loss_dict.get(k, 0) + v
             all_clf_probs.append(clf_probs), all_clf_labels.append(data.y.data.cpu())
 
-            if idx == loader_len - 1:
+            # if idx == loader_len - 1:
+            if idx == break_len - 1:
                 all_clf_probs, all_clf_labels = torch.cat(all_clf_probs), torch.cat(all_clf_labels)
                 for k, v in all_loss_dict.items():
                     all_loss_dict[k] = v / loader_len
