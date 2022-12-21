@@ -80,10 +80,11 @@ class Tau3MuGNNs:
 
     def train(self):
         start_epoch = 0
-        if self.config['optimizer']['resume']:
-            start_epoch = load_checkpoint(self.model, self.optimizer, self.log_path, self.device)
-
         best_val_recall = 0
+        if self.config['optimizer']['resume']:
+            start_epoch, ckpt_data = load_checkpoint(self.model, self.optimizer, self.log_path, self.device)
+            best_val_recall, _ = ckpt_data
+        
         for epoch in range(start_epoch, self.config['optimizer']['epochs'] + 1):
             self.run_one_epoch(self.data_loaders['train'], epoch, 'train')
 
@@ -92,8 +93,14 @@ class Tau3MuGNNs:
                 test_res = self.run_one_epoch(self.data_loaders['test'], epoch, 'test')
                 # print(f"valid_res: {valid_res}")
                 if valid_res[-1] >= best_val_recall:
-                    save_checkpoint(self.model, self.optimizer, self.log_path, epoch)
                     best_val_recall, best_test_recall, best_epoch = valid_res[-1], test_res[-1], epoch
+                    best_val_auroc = valid_res[-2]
+                    save_checkpoint(
+                        self.model, self.optimizer, self.log_path, epoch,
+                        best_val_recall = best_val_recall,
+                        best_val_auroc = best_val_auroc
+                    )
+                    
 
             self.writer.add_scalar('best/best_epoch', best_epoch, epoch)
             self.writer.add_scalar('best/best_val_recall', best_val_recall, epoch)
