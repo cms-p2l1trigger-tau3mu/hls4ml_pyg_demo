@@ -27,13 +27,15 @@ class Tau3MuGNNs:
         self.norm_fract_bitwidths.reverse() # reverse so bigger bitwidth comes first
         # self.norm_fract_bitwidths = [4] # for testing
         self.norm_int_bitwidth = config['model']["norm_ap_fixed_int"]
+        print(f"[INFO] Target int bitwidth: {self.norm_int_bitwidth}")
         # change the fract bitwidth the model will be initialized with 
         config['model']["norm_ap_fixed_int"] = self.norm_fract_bitwidths.pop(0)
-        print(f"Cuurent norm fract bitwidth: {config['model']['norm_ap_fixed_int']}") 
+        print(f"[INFO] Current norm fract bitwidth: {config['model']['norm_ap_fixed_int']}") 
         self.model = BV_Model(x_dim, edge_attr_dim, config['data']['virtual_node'], config['model'])
         self.load_model_pth = Path(config['model']['saved_model_path'])
         state_dict = torch.load(self.load_model_pth / 'model.pt', map_location=self.device)
-        # self.load_model_best_val_recall = state_dict['best_val_recall']
+        self.load_model_best_val_recall = state_dict['best_val_recall']
+        print(f"state_dict['best_val_recall']: {state_dict['best_val_recall']}")
         # convert the torch bn into quant bn
         self.model = convertBnToBvbn(self.model)
         self.model.load_state_dict(state_dict['model_state_dict'])
@@ -43,6 +45,7 @@ class Tau3MuGNNs:
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config['optimizer']['lr'])
         self.criterion = Criterion(config['optimizer'])
         print(f'[INFO] Number of trainable parameters: {sum(p.numel() for p in self.model.parameters())}')
+        print(f"[INFO] load_and_train_bv_gnn.py")
 
     @torch.no_grad()
     def eval_one_batch(self, data):
@@ -70,10 +73,10 @@ class Tau3MuGNNs:
 
         all_loss_dict, all_clf_probs, all_clf_labels = {}, [], []
         pbar = tqdm(data_loader, total=loader_len)
-        # break_len = 50
+        break_len = 50
         for idx, data in enumerate(pbar):
-            # if idx == break_len:
-            #     break
+            if idx == break_len:
+                break
 
             loss_dict, clf_probs = run_one_batch(data.to(self.device))
 
@@ -83,8 +86,8 @@ class Tau3MuGNNs:
                 all_loss_dict[k] = all_loss_dict.get(k, 0) + v
             all_clf_probs.append(clf_probs), all_clf_labels.append(data.y.data.cpu())
 
-            if idx == loader_len - 1:
-            # if idx == break_len - 1:
+            # if idx == loader_len - 1:
+            if idx == break_len - 1:
                 print(f"Phase: {phase}")
                 all_clf_probs, all_clf_labels = torch.cat(all_clf_probs), torch.cat(all_clf_labels)
                 for k, v in all_loss_dict.items():
@@ -104,8 +107,8 @@ class Tau3MuGNNs:
         quantizer_change_interval = 3*self.config['eval']['test_interval']
 
         if self.config['optimizer']['resume']:
-            start_epoch, best_val_recall = load_checkpoint(self.model, self.optimizer, self.log_path, self.device)
-
+            start_epoch, ckpt_data = load_checkpoint(self.model, self.optimizer, self.log_path, self.device)
+            best_val_recall, best_val_auroc = ckpt_data
         for epoch in range(start_epoch, self.config['optimizer']['epochs'] + 1):
             if ((epoch % quantizer_change_interval == 0) and (epoch !=0) and
             (len(self.norm_fract_bitwidths) !=0)):
