@@ -66,6 +66,7 @@ class Tau3MuGNNs:
                 for k, v in all_loss_dict.items():
                     all_loss_dict[k] = v / loader_len
                 desc, auroc, recall, avg_loss = log_epoch(epoch, phase, all_loss_dict, all_clf_probs, all_clf_labels, False, self.writer)
+                print(desc)
             pbar.set_description(desc)
 
         return avg_loss, auroc, recall
@@ -128,4 +129,5 @@ def main():
 if __name__ == '__main__':
     import os
     # os.chdir('./src')
+    print(f"current program pid: {os.getpid()}")
     main()
