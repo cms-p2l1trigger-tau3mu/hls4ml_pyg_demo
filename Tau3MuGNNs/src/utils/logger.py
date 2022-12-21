@@ -47,7 +47,15 @@ def log_epoch(epoch, phase, loss_dict, clf_probs, clf_labels, batch, writer=None
     auroc = metrics.roc_auc_score(clf_labels, clf_probs)
     partial_auroc = metrics.roc_auc_score(clf_labels, clf_probs, max_fpr=0.001)
     fpr, recall, thres = metrics.roc_curve(clf_labels, clf_probs)
-    indices = get_idx_for_interested_fpr(fpr, [0.001, 0.001/10])
+    # indices = get_idx_for_interested_fpr(fpr, [0.001, 0.001/10])
+    # print(f"fpr: {fpr}")
+    # print(f"recall: {recall}")
+    # print(f"thres: {thres}")
+    norm_factor = 31e6 # 31 MHz
+    interested_rates = [1e3, 10e3, 30e3] # 1kHz, 10 kHz, 30 kHz
+    interested_fprs = [rate/norm_factor for rate in interested_rates]
+    indices = get_idx_for_interested_fpr(fpr, interested_fprs)
+
 
     if writer is not None:
         writer.add_scalar(f'{phase}/AUROC/', auroc, epoch)

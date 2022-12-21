@@ -9,15 +9,22 @@ def load_checkpoint(model, optimizer, log_path, device):
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     start_epoch = checkpoint['epoch'] + 1
-    return start_epoch
+    best_val_recall = checkpoint['best_val_recall@1kHz']
+    best_val_auroc = checkpoint['best_val_auroc']
+    return (start_epoch, [best_val_recall, best_val_auroc])
 
 
-def save_checkpoint(model, optimizer, log_path, epoch):
+def save_checkpoint(
+    model, optimizer, log_path, epoch, 
+    best_val_recall=None, best_val_auroc=None
+):
     print(f'[INFO] Saving checkpoint to {log_path.name}')
     torch.save({
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
+        'best_val_recall@1kHz' : best_val_recall,
+        'best_val_auroc' : best_val_auroc,
     }, log_path / 'model.pt')
 
 
