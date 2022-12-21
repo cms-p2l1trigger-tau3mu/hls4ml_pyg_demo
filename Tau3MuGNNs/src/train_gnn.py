@@ -26,6 +26,7 @@ class Tau3MuGNNs:
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config['optimizer']['lr'])
         self.criterion = Criterion(config['optimizer'])
         print(f'[INFO] Number of trainable parameters: {sum(p.numel() for p in self.model.parameters())}')
+        print(f"[INFO] train_gnn.py")
         print(f"[INFO] Target int bitwidth: {config['model']['linear_ap_fixed_int']}")
         print(f"[INFO] Target fract bitwidth: {config['model']['linear_ap_fixed_fract']}")
 
