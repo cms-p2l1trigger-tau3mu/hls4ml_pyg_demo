@@ -460,3 +460,27 @@ def changeToStaticQuantizer_v2(bv_model, quantizer_dict):
             mlp[jdx] = _changeToStaticQuantizer_v2(mlp[jdx], quantizer_dict)
 
     return new_model
+
+
+def changeBnToStaticQuantizer(bv_model, quantizer_dict):
+    """
+    This changes quant batchnorm layers by reinitializing
+    quant layers and importing the bv_models weights instead
+    returns the bv_model defined above, but with different
+    explicit quantizer
+
+    it uses _changeToStaticQuantizer_v2 as a backend function
+
+    NOTE: this only changes the quant batchnorm layers
+    """
+    new_model = copy.deepcopy(bv_model)
+    # go over quant bn layers and change the quantizers
+    new_model.bn_node_feature = _changeToStaticQuantizer_v2(new_model.bn_node_feature, quantizer_dict)
+    new_model.bn_edge_feature = _changeToStaticQuantizer_v2(new_model.bn_edge_feature, quantizer_dict)
+    for idx in range(new_model.n_layers):
+        mlp = new_model.mlps[idx]
+        for jdx in range(len(mlp)):
+            if (mlp[jdx].__class__.__name__ == 'BatchNorm1dToQuantScaleBias'):
+                mlp[jdx] = _changeToStaticQuantizer_v2(mlp[jdx], quantizer_dict)
+
+    return new_model
