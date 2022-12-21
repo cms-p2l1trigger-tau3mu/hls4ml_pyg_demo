@@ -30,7 +30,7 @@ from tensorboard.compat.proto.tensor_shape_pb2 import TensorShapeProto
 from tensorboard.compat.proto.summary_pb2 import Summary
 
 
-def log_epoch(epoch, phase, loss_dict, clf_logits, clf_labels, batch, writer=None, exp_probs=None, exp_labels=None):
+def log_epoch(epoch, phase, loss_dict, clf_probs, clf_labels, batch, writer=None, exp_probs=None, exp_labels=None):
     desc = f'[Epoch: {epoch}]: {phase}........., ' if batch else f'[Epoch: {epoch}]: {phase} finished, '
     for k, v in loss_dict.items():
         if not batch and writer is not None:
@@ -39,7 +39,8 @@ def log_epoch(epoch, phase, loss_dict, clf_logits, clf_labels, batch, writer=Non
     if batch:
         return desc
 
-    clf_probs = clf_logits.sigmoid()
+    # turn off sigmoid() since we use quantsigmoid for bv models
+    # clf_probs = clf_logits.sigmoid()
 
     auroc = metrics.roc_auc_score(clf_labels, clf_probs)
     partial_auroc = metrics.roc_auc_score(clf_labels, clf_probs, max_fpr=0.001)
@@ -65,7 +66,8 @@ def log_epoch(epoch, phase, loss_dict, clf_logits, clf_labels, batch, writer=Non
     fig = PlotCM(confusion_matrix=cm, display_labels=['Neg', 'Pos']).plot(cmap=plt.cm.Blues).figure_
     if writer is not None: writer.add_figure(f'Confusion Matrix - max_fpr_over_10/{phase}', fig, epoch)
 
-    desc += f'auroc: {auroc:.3f}, recall@maxfpr: {recall[indices[0]]:.3f}'
+    desc += f'auroc: {auroc:.3f}, recall@1kHz: {recall[indices[0]]:.3f}'
+
 
     if exp_probs is not None and exp_labels is not None and -1 not in exp_labels and -1 not in exp_probs:
         exp_auroc = metrics.roc_auc_score(exp_labels, exp_probs)

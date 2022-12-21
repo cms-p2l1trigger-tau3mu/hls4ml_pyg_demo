@@ -31,41 +31,41 @@ class Tau3MuGNNs:
     def eval_one_batch(self, data):
         self.model.eval()
 
-        clf_logits = self.model(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr, batch=data.batch, data=data)
-        loss, loss_dict = self.criterion(clf_logits.sigmoid(), data.y)
-        return loss_dict, clf_logits.data.cpu()
+        clf_probs = self.model(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr, batch=data.batch, data=data)
+        loss, loss_dict = self.criterion(clf_probs, data.y)
+        return loss_dict, clf_probs.data.cpu()
 
     def train_one_batch(self, data):
         self.model.train()
 
-        clf_logits = self.model(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr, batch=data.batch, data=data)
-        loss, loss_dict = self.criterion(clf_logits.sigmoid(), data.y)
+        clf_probs = self.model(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr, batch=data.batch, data=data)
+        loss, loss_dict = self.criterion(clf_probs, data.y)
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        return loss_dict, clf_logits.data.cpu()
+        return loss_dict, clf_probs.data.cpu()
 
     def run_one_epoch(self, data_loader, epoch, phase):
         loader_len = len(data_loader)
         run_one_batch = self.train_one_batch if phase == 'train' else self.eval_one_batch
         phase = 'test ' if phase == 'test' else phase  # align tqdm desc bar
 
-        all_loss_dict, all_clf_logits, all_clf_labels = {}, [], []
+        all_loss_dict, all_clf_probs, all_clf_labels = {}, [], []
         pbar = tqdm(data_loader, total=loader_len)
         for idx, data in enumerate(pbar):
-            loss_dict, clf_logits = run_one_batch(data.to(self.device))
+            loss_dict, clf_probs = run_one_batch(data.to(self.device))
 
-            desc = log_epoch(epoch, phase, loss_dict, clf_logits, data.y.data.cpu(), batch=True)
+            desc = log_epoch(epoch, phase, loss_dict, clf_probs, data.y.data.cpu(), batch=True)
             for k, v in loss_dict.items():
                 all_loss_dict[k] = all_loss_dict.get(k, 0) + v
-            all_clf_logits.append(clf_logits), all_clf_labels.append(data.y.data.cpu())
+            all_clf_probs.append(clf_probs), all_clf_labels.append(data.y.data.cpu())
 
             if idx == loader_len - 1:
-                all_clf_logits, all_clf_labels = torch.cat(all_clf_logits), torch.cat(all_clf_labels)
+                all_clf_probs, all_clf_labels = torch.cat(all_clf_probs), torch.cat(all_clf_labels)
                 for k, v in all_loss_dict.items():
                     all_loss_dict[k] = v / loader_len
-                desc, auroc, recall, avg_loss = log_epoch(epoch, phase, all_loss_dict, all_clf_logits, all_clf_labels, False, self.writer)
+                desc, auroc, recall, avg_loss = log_epoch(epoch, phase, all_loss_dict, all_clf_probs, all_clf_labels, False, self.writer)
             pbar.set_description(desc)
 
         return avg_loss, auroc, recall

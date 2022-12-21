@@ -30,7 +30,7 @@ class GENConv(MessagePassing):
         self.aggr = aggr
         self.eps = eps
         self.id = id
-        print(f"self.eps: {self.eps}") # 1e-7
+        # print(f"self.eps: {self.eps}") # 1e-7
         assert aggr in ['softmax', 'softmax_sg', 'power', 'mean', 'max', 'sum']
 
         self.initial_t = t

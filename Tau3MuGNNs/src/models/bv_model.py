@@ -338,14 +338,125 @@ def convertBnToBvbn(bv_model):
     return new_model
 
 
-# def _changeQuantizer(bv_module, quantizer):
-#     bv_module.__
-
-# def changeQuantizer(bv_model, quantizer):
-#     """
-#     returns the bv_model defined above, but with different
-#     explicit quantizer
-#     """
-#     new_model = copy.deepcopy(bv_model)
-#     # go over all bv layers and change the quantizers
+def _changeToStaticQuantizer(bv_module, injector_dict):
+    if ((bv_module.__class__.__name__ == 'QuantLinear') or 
+    (bv_module.__class__.__name__ == 'BatchNorm1dToQuantScaleBias')):
+        bv_module.weight_quant = injector_dict["weight"]
+        bv_module.bias_quant = injector_dict["bias"]
+        bv_module.input_quant = injector_dict["act"]
+        bv_module.output_quant = injector_dict["act"]
+    elif ((bv_module.__class__.__name__ == 'QuantReLU') or 
+    (bv_module.__class__.__name__ == 'QuantSigmoid')):
+        bv_module.act_quant = injector_dict["act"]
+    else:
+        print(f"_changeQuantizer Unsupported layer: {module.__class__.__name__}")
     
+    return bv_module
+
+def changeToStaticQuantizer(bv_model, quantizer_dict):
+    """
+    returns the bv_model defined above, but with different
+    explicit quantizer
+    """
+    # Create weight injector dictionar using quantizer_dict
+    # NOTE: this only works bc we are using static quantizer
+    # where scale doesn't change
+    dummy_linear  = qnn.QuantLinear(
+                    1, # dummy value
+                    1, # dummy value
+                    bias=True, # dummy value
+                    weight_quant= quantizer_dict["weight"],
+                    bias_quant= quantizer_dict["bias"],
+                    input_quant= quantizer_dict["act"],
+                    output_quant= quantizer_dict["act"],
+    )
+    injector_dict = {}
+    injector_dict["weight"] = dummy_linear.weight_quant
+    injector_dict["bias"] = dummy_linear.bias_quant
+    injector_dict["act"] = dummy_linear.input_quant
+    new_model = copy.deepcopy(bv_model)
+    # go over all bv layers and change the quantizers
+    new_model.node_encoder = _changeToStaticQuantizer(new_model.node_encoder, injector_dict)
+    new_model.edge_encoder = _changeToStaticQuantizer(new_model.edge_encoder, injector_dict)
+    new_model.bn_node_feature = _changeToStaticQuantizer(new_model.bn_node_feature, injector_dict)
+    new_model.bn_edge_feature = _changeToStaticQuantizer(new_model.bn_edge_feature, injector_dict)
+    for idx in range(new_model.n_layers):
+        mlp = new_model.mlps[idx]
+        for jdx in range(len(mlp)):
+            mlp[jdx] = _changeToStaticQuantizer(mlp[jdx], injector_dict)
+
+    return new_model
+    
+def _changeToStaticQuantizer_v2(bv_module, quantizer_dict):
+    new_module = None
+    if (bv_module.__class__.__name__ == 'QuantLinear'):
+        bias = True if bv_module.bias_quant is not None else False
+        new_module = qnn.QuantLinear(
+            bv_module.in_features,
+            bv_module.out_features,
+            bias = bias,
+            weight_quant= quantizer_dict["weight"],
+            bias_quant= quantizer_dict["bias"],
+            input_quant= quantizer_dict["act"],
+            output_quant= quantizer_dict["act"],
+            return_quant_tensor = bv_module.return_quant_tensor
+        )
+        # load the weights and biases
+        new_module.weight = nn.Parameter(
+            bv_module.weight
+        )
+        if bias:
+            new_module.bias = nn.Parameter(
+                bv_module.bias
+            )
+    elif (bv_module.__class__.__name__ == 'BatchNorm1dToQuantScaleBias'):
+        new_module = BatchNorm1dToQuantScaleBias(
+                    num_features= bv_module.num_features,
+                    weight_quant= quantizer_dict["weight"],
+                    bias_quant= quantizer_dict["bias"],
+                    input_quant= quantizer_dict["act"],
+                    output_quant= quantizer_dict["act"],
+                    return_quant_tensor= bv_module.return_quant_tensor
+        )
+        # load the weights and biases
+        new_module.weight = nn.Parameter(
+            bv_module.weight
+        )
+        
+        new_module.bias = nn.Parameter(
+            bv_module.bias
+        )
+    elif (bv_module.__class__.__name__ == 'QuantReLU'): 
+        new_module = qnn.QuantReLU(
+            act_quant = quantizer_dict["act"],
+            return_quant_tensor= bv_module.return_quant_tensor
+        )
+    elif (bv_module.__class__.__name__ == 'QuantSigmoid'):
+        new_module = qnn.QuantSigmoid(
+            act_quant = quantizer_dict["act"],
+            return_quant_tensor= bv_module.return_quant_tensor
+        )
+    else:
+        print(f"_changeQuantizer Unsupported layer: {module.__class__.__name__}")
+    
+    return new_module
+
+def changeToStaticQuantizer_v2(bv_model, quantizer_dict):
+    """
+    This is different from changeToStaticQuantizer by reinitializing
+    quant layers and importing the bv_models weights instead
+    returns the bv_model defined above, but with different
+    explicit quantizer
+    """
+    new_model = copy.deepcopy(bv_model)
+    # go over all bv layers and change the quantizers
+    new_model.node_encoder = _changeToStaticQuantizer_v2(new_model.node_encoder, quantizer_dict)
+    new_model.edge_encoder = _changeToStaticQuantizer_v2(new_model.edge_encoder, quantizer_dict)
+    new_model.bn_node_feature = _changeToStaticQuantizer_v2(new_model.bn_node_feature, quantizer_dict)
+    new_model.bn_edge_feature = _changeToStaticQuantizer_v2(new_model.bn_edge_feature, quantizer_dict)
+    for idx in range(new_model.n_layers):
+        mlp = new_model.mlps[idx]
+        for jdx in range(len(mlp)):
+            mlp[jdx] = _changeToStaticQuantizer_v2(mlp[jdx], quantizer_dict)
+
+    return new_model
