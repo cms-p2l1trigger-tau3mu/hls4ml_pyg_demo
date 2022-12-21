@@ -39,8 +39,10 @@ def log_epoch(epoch, phase, loss_dict, clf_probs, clf_labels, batch, writer=None
     if batch:
         return desc
 
-    # turn off sigmoid() since we use quantsigmoid for bv models
-    # clf_probs = clf_logits.sigmoid()
+    # # just quick debugging
+    # max_val = torch.max(clf_probs)
+    # min_val = torch.min(clf_probs)
+    # print(f"clf_probs max: {max_val}, min: {min_val}")
 
     auroc = metrics.roc_auc_score(clf_labels, clf_probs)
     partial_auroc = metrics.roc_auc_score(clf_labels, clf_probs, max_fpr=0.001)
