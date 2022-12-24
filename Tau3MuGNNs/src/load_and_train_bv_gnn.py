@@ -23,7 +23,8 @@ class Tau3MuGNNs:
 
 
         target_norm_fract_bitwidth = config['model']["norm_ap_fixed_fract"]
-        self.norm_fract_bitwidths = [i for i in range(target_norm_fract_bitwidth, 14, 2)]
+        # self.norm_fract_bitwidths = [i for i in range(target_norm_fract_bitwidth, 14, 2)]
+        self.norm_fract_bitwidths = [i for i in range(target_norm_fract_bitwidth, 12+1, 4)] # 12+1 bc we want to include 12
         self.norm_fract_bitwidths.reverse() # reverse so bigger bitwidth comes first
         # self.norm_fract_bitwidths = [4] # for testing
         self.norm_int_bitwidth = config['model']["norm_ap_fixed_int"]
@@ -34,16 +35,23 @@ class Tau3MuGNNs:
         self.model = BV_Model(x_dim, edge_attr_dim, config['data']['virtual_node'], config['model'])
         self.load_model_pth = Path(config['model']['saved_model_path'])
         state_dict = torch.load(self.load_model_pth / 'model.pt', map_location=self.device)
+        self.state_dict = state_dict
         # self.load_model_best_val_recall = state_dict['best_val_recall@1kHz']
-        print(f"state_dict['best_val_recall@1kHz']: {state_dict['best_val_recall@1kHz']}")
+        # print(f"state_dict['best_val_recall@1kHz']: {state_dict['best_val_recall@1kHz']}")
         # convert the torch bn into quant bn
-        self.model = convertBnToBvbn(self.model)
         self.model.load_state_dict(state_dict['model_state_dict'])
+        self.model = convertBnToBvbn(self.model)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config['optimizer']['lr'])
+        self.criterion = Criterion(config['optimizer'])
+        _ = save_checkpoint(
+                        self.model, self.optimizer, self.log_path, 
+                        epoch = 0, best_val_recall=state_dict['best_val_recall@1kHz'],
+                        best_val_auroc = state_dict['best_val_auroc']
+        )
         self.model.to(self.device)
         
 
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config['optimizer']['lr'])
-        self.criterion = Criterion(config['optimizer'])
+        
         print(f'[INFO] Number of trainable parameters: {sum(p.numel() for p in self.model.parameters())}')
         print(f"[INFO] load_and_train_bv_gnn.py")
 
@@ -73,10 +81,10 @@ class Tau3MuGNNs:
 
         all_loss_dict, all_clf_probs, all_clf_labels = {}, [], []
         pbar = tqdm(data_loader, total=loader_len)
-        break_len = 50
+        # break_len = 50
         for idx, data in enumerate(pbar):
-            if idx == break_len:
-                break
+            # if idx == break_len:
+            #     break
 
             loss_dict, clf_probs = run_one_batch(data.to(self.device))
 
@@ -86,9 +94,9 @@ class Tau3MuGNNs:
                 all_loss_dict[k] = all_loss_dict.get(k, 0) + v
             all_clf_probs.append(clf_probs), all_clf_labels.append(data.y.data.cpu())
 
-            # if idx == loader_len - 1:
-            if idx == break_len - 1:
-                print(f"Phase: {phase}")
+            if idx == loader_len - 1:
+            # if idx == break_len - 1:
+                # print(f"Phase: {phase}")
                 all_clf_probs, all_clf_labels = torch.cat(all_clf_probs), torch.cat(all_clf_labels)
                 for k, v in all_loss_dict.items():
                     all_loss_dict[k] = v / loader_len
@@ -102,9 +110,12 @@ class Tau3MuGNNs:
     def train(self):
         print(f"pwd: {os.path.abspath(os.getcwd())}")
         start_epoch = 0
-        best_val_recall = 0
+        # start_epoch = self.state_dict['epoch']
+        # best_epoch = 0
+        best_val_recall = 0 #self.state_dict['best_val_recall@1kHz']
         best_val_auroc = 0
-        quantizer_change_interval = 3*self.config['eval']['test_interval']
+        # quantizer_change_interval = 3*self.config['eval']['test_interval']
+        quantizer_change_interval = 200 #150
 
         if self.config['optimizer']['resume']:
             start_epoch, ckpt_data = load_checkpoint(self.model, self.optimizer, self.log_path, self.device)
@@ -112,19 +123,19 @@ class Tau3MuGNNs:
         for epoch in range(start_epoch, self.config['optimizer']['epochs'] + 1):
             if ((epoch % quantizer_change_interval == 0) and (epoch !=0) and
             (len(self.norm_fract_bitwidths) !=0)):
-                # keep the original load path if no improvement, since nothing is save on log path
+                # # keep the original load path if no improvement, since nothing is save on log path
                 # if (best_val_recall < self.load_model_best_val_recall):
-                if (best_val_auroc < 0.8): # hard coded threshold
-                    log_path = self.load_model_pth  
-                else :
-                    log_path = self.log_path
-                
+                #     log_path = self.load_model_pth  
+                # else :
+                #     log_path = self.log_path
+                log_path = self.log_path
                 _ = load_checkpoint(self.model, self.optimizer, log_path, self.device)# load last best model
                 fract_bitwidth = self.norm_fract_bitwidths.pop(0)
                 print(f"changing norm fract bitwidth to {fract_bitwidth}") 
                 quantizer_dict = getCustomQuantizer(self.norm_int_bitwidth, fract_bitwidth)
                 self.model = changeBnToStaticQuantizer(self.model, quantizer_dict).to(self.device)
-                quant_weight = self.model.node_encoder.quant_weight()
+                # reset best_val_recall
+                best_val_recall = 0
             self.run_one_epoch(self.data_loaders['train'], epoch, 'train')
 
             if epoch % self.config['eval']['test_interval'] == 0:
@@ -132,15 +143,17 @@ class Tau3MuGNNs:
                 test_res = self.run_one_epoch(self.data_loaders['test'], epoch, 'test')
                 if valid_res[-1] >= best_val_recall:
                     best_val_recall, best_test_recall, best_epoch = valid_res[-1], test_res[-1], epoch
+                    best_val_auroc = valid_res[-2]
                     save_checkpoint(
                         self.model, self.optimizer, self.log_path, 
-                        epoch, best_val_recall=best_val_recall
+                        epoch, best_val_recall=best_val_recall,
+                        best_val_auroc = best_val_auroc
                     )
-                    best_val_auroc = valid_res[-2]
+                    
 
-            self.writer.add_scalar('best/best_epoch', best_epoch, epoch)
-            self.writer.add_scalar('best/best_val_recall', best_val_recall, epoch)
-            self.writer.add_scalar('best/best_test_recall', best_test_recall, epoch)
+            # self.writer.add_scalar('best/best_epoch', best_epoch, epoch)
+            # self.writer.add_scalar('best/best_val_recall', best_val_recall, epoch)
+            # self.writer.add_scalar('best/best_test_recall', best_test_recall, epoch)
             print('-' * 50)
 
 
