@@ -24,7 +24,7 @@ class Tau3MuGNNs:
 
         target_norm_fract_bitwidth = config['model']["norm_ap_fixed_fract"]
         # self.norm_fract_bitwidths = [i for i in range(target_norm_fract_bitwidth, 14, 2)]
-        self.norm_fract_bitwidths = [i for i in range(target_norm_fract_bitwidth, 12+1, 4)] # 12+1 bc we want to include 12
+        self.norm_fract_bitwidths = [i for i in range(target_norm_fract_bitwidth, 12+1, 2)] # 12+1 bc we want to include 12
         self.norm_fract_bitwidths.reverse() # reverse so bigger bitwidth comes first
         # self.norm_fract_bitwidths = [4] # for testing
         self.norm_int_bitwidth = config['model']["norm_ap_fixed_int"]
