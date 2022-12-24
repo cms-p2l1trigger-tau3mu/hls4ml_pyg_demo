@@ -24,7 +24,7 @@ class Tau3MuGNNs:
 
         target_norm_fract_bitwidth = config['model']["norm_ap_fixed_fract"]
         # self.norm_fract_bitwidths = [i for i in range(target_norm_fract_bitwidth, 14, 2)]
-        self.norm_fract_bitwidths = [i for i in range(target_norm_fract_bitwidth, 12+1, 2)] # 12+1 bc we want to include 12
+        self.norm_fract_bitwidths = [i for i in range(target_norm_fract_bitwidth, 16+1, 2)] # 12+1 bc we want to include 12
         self.norm_fract_bitwidths.reverse() # reverse so bigger bitwidth comes first
         # self.norm_fract_bitwidths = [4] # for testing
         self.norm_int_bitwidth = config['model']["norm_ap_fixed_int"]
@@ -115,7 +115,7 @@ class Tau3MuGNNs:
         best_val_recall = 0 #self.state_dict['best_val_recall@1kHz']
         best_val_auroc = 0
         # quantizer_change_interval = 3*self.config['eval']['test_interval']
-        quantizer_change_interval = 200 #150
+        quantizer_change_interval = 25 #150
 
         if self.config['optimizer']['resume']:
             start_epoch, ckpt_data = load_checkpoint(self.model, self.optimizer, self.log_path, self.device)
