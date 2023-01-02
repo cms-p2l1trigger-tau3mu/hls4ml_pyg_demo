@@ -31,6 +31,8 @@ def countNonZeroWeights(model):
     layer_count_alive = {}
     layer_count_total = {}
     for name, p in model.named_parameters():
+        if ("convs" in name):
+            continue
         tensor = p.data.cpu().numpy()
         nz_count = np.count_nonzero(tensor)
         total_params = np.prod(tensor.shape)
@@ -58,31 +60,37 @@ def prune_model(model, amount, mask, method=prune.L1Unstructured, device = "cpu"
     parameters_to_prune = [
         (model.node_encoder, 'weight'),
         (model.edge_encoder, 'weight'),
-        (model.fc_out, 'weight')
+        # (model.fc_out, 'weight'),
+        (model.node_encoder, 'bias'),
+        (model.edge_encoder, 'bias'),
+        # (model.fc_out, 'bias')
     ]
     for idx in range(len(model.mlps)):
         mlp = model.mlps[idx]
         parameters_to_prune.append(((mlp.fc1, 'weight')))
         parameters_to_prune.append(((mlp.fc2, 'weight')))
+        parameters_to_prune.append(((mlp.fc1, 'bias')))
+        parameters_to_prune.append(((mlp.fc2, 'bias')))
 
     prune.global_unstructured(  # global prune the model
         parameters_to_prune,
         pruning_method=method,
         amount=amount,
     )
-    # # Connections to outputs are pruned at half of the rate of the rest of the network
-    # parameters_to_prune = [(model.fc_out, 'weight')]
-    # prune.global_unstructured(  # global prune the model
-    #     parameters_to_prune,
-    #     pruning_method=method,
-    #     amount=amount/2,
-    # )
+    # Connections to outputs are pruned at third of the rate of the rest of the network
+    parameters_to_prune = [(model.fc_out, 'weight'), (model.fc_out, 'bias')]
+    prune.global_unstructured(  # global prune the model
+        parameters_to_prune,
+        pruning_method=method,
+        amount=amount/3,
+    )
 
     for name, module in model.named_modules():  # make pruning "permanant" by removing the orig/mask values from the state dict
         if isinstance(module, torch.nn.Linear):
             torch.logical_and(module.weight_mask, mask[name],
                               out=mask[name])  # Update progress mask
             prune.remove(module, 'weight')  # remove all those values in the global pruned model
+            prune.remove(module, 'bias')  # remove all those values in the global pruned model
 
     model.to(device)
     model.mask_to_device(device)
@@ -100,7 +108,7 @@ class Tau3MuGNNs:
 
         # take ~10% of the "original" value each time, until last few iterations, reducing to ~1.2% original network size
         # self.prune_value_set = [0.0, 0.10, 0.111, .125, .143, .166, .20, .25, .333, .50, .666, .766]
-        self.prune_value_set = [0.0, 0.5, 0.8, .964, .981]
+        self.prune_value_set = [0.0, 0.5, 0.8, 0.85, 0.9, .964, .981]
         self.prune_value_set.append(0)  # Last 0 is so the final iteration can fine tune before testing
         common_dim = self.config['model']['out_channels']
         self.prune_mask = {
@@ -192,23 +200,26 @@ class Tau3MuGNNs:
             start_epoch, ckpt_data = load_checkpoint(self.model, self.optimizer, self.log_path, self.device)
             best_val_recall, _ = ckpt_data
 
-        # self.model.mask_to_device(self.device)
-        
+        self.model.update_masks(self.prune_mask)
+        self.model.to(self.device)
+        self.model.mask_to_device(self.device)
+        self.model.force_mask_apply()
+        prune_value = 0
 
         for epoch in range(start_epoch, self.config['optimizer']['epochs'] + 1):
             time_to_prune = epoch%prune_epoch_interval==0 and self.config["model"]["lottery"]
             
             time_to_prune =  time_to_prune and (prune_value_idx < len(self.prune_value_set)) # if already at last prune_value, then skip
 
-            if time_to_prune:
-                print("~~~~~!~!~!~!~!~!~Resetting Model!~!~!~!~!~!~~~~~\n\n")
-                print("Resetting Model to Inital State dict with masks applied. Verifying via param count.\n\n")
-                self.model.load_state_dict(self.init_sd)
-                self.model.update_masks(self.prune_mask)
-                self.model.to(self.device)
-                self.model.mask_to_device(self.device)
-                self.model.force_mask_apply()
-                countNonZeroWeights(self.model)
+            # if time_to_prune:
+            #     print("~~~~~!~!~!~!~!~!~Resetting Model!~!~!~!~!~!~~~~~\n\n")
+            #     print("Resetting Model to Inital State dict with masks applied. Verifying via param count.\n\n")
+            #     self.model.load_state_dict(self.init_sd)
+            #     self.model.update_masks(self.prune_mask)
+            #     self.model.to(self.device)
+            #     self.model.mask_to_device(self.device)
+            #     self.model.force_mask_apply()
+            #     countNonZeroWeights(self.model)
 
 
             self.run_one_epoch(self.data_loaders['train'], epoch, 'train')
@@ -217,21 +228,27 @@ class Tau3MuGNNs:
                 valid_res = self.run_one_epoch(self.data_loaders['valid'], epoch, 'valid')
                 test_res = self.run_one_epoch(self.data_loaders['test'], epoch, 'test')
                 # print(f"valid_res: {valid_res}")
-                end_prune_value_idx = len(self.prune_value_set)
-                if ((valid_res[-1] >= best_val_recall) and 
-                (prune_value_idx == end_prune_value_idx)):
+                # end_prune_value_idx = len(self.prune_value_set)
+                # if ((valid_res[-1] >= best_val_recall) and 
+                # (prune_value_idx == end_prune_value_idx)):
+                if (valid_res[-1] >= best_val_recall):
                     best_val_recall, best_test_recall, best_epoch = valid_res[-1], test_res[-1], epoch
                     best_val_auroc = valid_res[-2]
+                    save_path = Path(str(self.log_path) + f"/prune_val{prune_value:.3g}")
+                    save_path.mkdir(parents=True, exist_ok=True)
                     save_checkpoint(
-                        self.model, self.optimizer, self.log_path, epoch,
+                        self.model, self.optimizer, save_path, epoch,
                         best_val_recall = best_val_recall,
                         best_val_auroc = best_val_auroc
                     )
+                print(f"saving model at {save_path}")
 
             if time_to_prune:  # if using lottery ticket method, reset all weights to first initalized vals
-                
+                best_val_recall = 0 # reset best_val_recall
+
                 # now prune the model
                 prune_value = self.prune_value_set[prune_value_idx]
+                print(f"[INFO] new prune value: {prune_value}")
                 prune_value_idx += 1 # increment for next time
                 # Prune for next iter
                 if prune_value > 0:
@@ -239,16 +256,23 @@ class Tau3MuGNNs:
                     # Plot weight dist
                     # filename = path.join(options.outputDir, 'weight_dist_{}b_e{}_{}.png'.format(nbits, epoch_counter, time))
                     print("Post Pruning: ")
+                    countNonZeroWeights(self.model)
                     # print(f"self.model: {self.model}")
-                    pruned_params,_,_,_ = countNonZeroWeights(self.model)
                     # plot_kernels(model,
                     #                             text=' (Pruned ' + str(base_params - pruned_params) + ' out of ' + str(
                     #                             base_params) + ' params)',
                     #                             output=filename)
-                    print(f"[INFO] pruned_params: {pruned_params}")
-            self.writer.add_scalar('best/best_epoch', best_epoch, epoch)
-            self.writer.add_scalar('best/best_val_recall', best_val_recall, epoch)
-            self.writer.add_scalar('best/best_test_recall', best_test_recall, epoch)
+                    print("~~~~~!~!~!~!~!~!~Resetting Model!~!~!~!~!~!~~~~~\n\n")
+                    print("Resetting Model to Inital State dict with masks applied. Verifying via param count.\n\n")
+                    self.model.load_state_dict(self.init_sd)
+                    self.model.update_masks(self.prune_mask)
+                    self.model.to(self.device)
+                    self.model.mask_to_device(self.device)
+                    self.model.force_mask_apply()
+                    countNonZeroWeights(self.model)
+            # self.writer.add_scalar('best/best_epoch', best_epoch, epoch)
+            # self.writer.add_scalar('best/best_val_recall', best_val_recall, epoch)
+            # self.writer.add_scalar('best/best_test_recall', best_test_recall, epoch)
             print('-' * 50)
 
 
