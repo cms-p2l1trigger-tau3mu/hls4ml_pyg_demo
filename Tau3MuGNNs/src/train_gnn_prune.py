@@ -49,7 +49,9 @@ def prune_model(model, amount, mask, method=prune.L1Unstructured, device = "cpu"
     model.mask_to_device('cpu')
     for name, module in model.named_modules():  # re-apply current mask to the model
         if isinstance(module, torch.nn.Linear):
-            prune.custom_from_mask(module, "weight", mask[name])
+            # prune.custom_from_mask(module, "weight", mask[name])
+            prune.custom_from_mask(module, "weight", mask["weight"][name])
+            prune.custom_from_mask(module, "bias", mask["bias"][name])
             module_parameters = list(module.named_parameters()) # for debugging
             module_named_buffers = list(module.named_buffers()) # for debugging
 
@@ -87,8 +89,12 @@ def prune_model(model, amount, mask, method=prune.L1Unstructured, device = "cpu"
 
     for name, module in model.named_modules():  # make pruning "permanant" by removing the orig/mask values from the state dict
         if isinstance(module, torch.nn.Linear):
-            torch.logical_and(module.weight_mask, mask[name],
-                              out=mask[name])  # Update progress mask
+            # torch.logical_and(module.weight_mask, mask[name],
+            #                   out=mask[name])  # Update progress mask
+            torch.logical_and(module.weight_mask, mask["weight"][name],
+                              out=mask["weight"][name])  # Update progress mask
+            torch.logical_and(module.bias_mask, mask["bias"][name],
+                              out=mask["bias"][name])  # Update progress mask
             prune.remove(module, 'weight')  # remove all those values in the global pruned model
             prune.remove(module, 'bias')  # remove all those values in the global pruned model
 
@@ -112,9 +118,17 @@ class Tau3MuGNNs:
         self.prune_value_set.append(0)  # Last 0 is so the final iteration can fine tune before testing
         common_dim = self.config['model']['out_channels']
         self.prune_mask = {
-            "node_encoder": torch.ones(common_dim, x_dim),
-            "edge_encoder": torch.ones(common_dim, edge_attr_dim),
-            "fc_out": torch.ones(1, common_dim)
+            "weight": {
+                "node_encoder": torch.ones(common_dim, x_dim),
+                "edge_encoder": torch.ones(common_dim, edge_attr_dim),
+                "fc_out": torch.ones(1, common_dim)
+            },
+            "bias": {
+                "node_encoder": torch.ones(common_dim),
+                "edge_encoder": torch.ones(common_dim),
+                "fc_out": torch.ones(1)
+            }
+            
         }
         # make masks for mlp blocks
         # for idx in range(self.config['model']['n_layers']):
@@ -124,11 +138,13 @@ class Tau3MuGNNs:
         #     }
         #     self.prune_mask[f"mlp_{idx}"] = mlp_mask
         for idx in range(self.config['model']['n_layers']):
-            self.prune_mask[f"mlps.{idx}.fc1"] = torch.ones(2*common_dim, common_dim)
-            self.prune_mask[f"mlps.{idx}.fc2"] = torch.ones(common_dim, 2*common_dim)
+            self.prune_mask["weight"][f"mlps.{idx}.fc1"] = torch.ones(2*common_dim, common_dim)
+            self.prune_mask["weight"][f"mlps.{idx}.fc2"] = torch.ones(common_dim, 2*common_dim)
+
+            self.prune_mask["bias"][f"mlps.{idx}.fc1"] = torch.ones(2*common_dim)
+            self.prune_mask["bias"][f"mlps.{idx}.fc2"] = torch.ones(common_dim)
         
         self.model = PruneModel(self.prune_mask, x_dim, edge_attr_dim, config['data']['virtual_node'], config['model'])
-        # self.model = Model(x_dim, edge_attr_dim, config['data']['virtual_node'], config['model'])
 
         # save initial state_dict for lottery pruning
         self.init_sd = self.model.state_dict()
@@ -166,10 +182,10 @@ class Tau3MuGNNs:
 
         all_loss_dict, all_clf_probs, all_clf_labels = {}, [], []
         pbar = tqdm(data_loader, total=loader_len)
-        # break_len = 50
+        break_len = 50
         for idx, data in enumerate(pbar):
-            # if idx == break_len:
-            #     break
+            if idx == break_len:
+                break
             loss_dict, clf_probs = run_one_batch(data.to(self.device))
 
             desc = log_epoch(epoch, phase, loss_dict, clf_probs, data.y.data.cpu(), batch=True)
@@ -177,8 +193,8 @@ class Tau3MuGNNs:
                 all_loss_dict[k] = all_loss_dict.get(k, 0) + v
             all_clf_probs.append(clf_probs), all_clf_labels.append(data.y.data.cpu())
 
-            if idx == loader_len - 1:
-            # if idx == break_len - 1:
+            # if idx == loader_len - 1:
+            if idx == break_len - 1:
                 all_clf_probs, all_clf_labels = torch.cat(all_clf_probs), torch.cat(all_clf_labels)
                 for k, v in all_loss_dict.items():
                     all_loss_dict[k] = v / loader_len
@@ -193,7 +209,7 @@ class Tau3MuGNNs:
         start_epoch = 0
         best_val_recall = 0
         # prune_epoch_interval = self.config["model"]["prune_interval"]
-        prune_epoch_interval = 200
+        prune_epoch_interval = 1#200
         print(f"[INFO] prune_epoch_interval: {prune_epoch_interval}")
         prune_value_idx = 0
         if self.config['optimizer']['resume']:
@@ -234,7 +250,8 @@ class Tau3MuGNNs:
                 if (valid_res[-1] >= best_val_recall):
                     best_val_recall, best_test_recall, best_epoch = valid_res[-1], test_res[-1], epoch
                     best_val_auroc = valid_res[-2]
-                    save_path = Path(str(self.log_path) + f"/prune_val{prune_value:.3g}")
+                    prune_value_str = f"{prune_value:.3g}".replace('.', "_")
+                    save_path = Path(str(self.log_path) + f"/prune_val{prune_value_str}")
                     save_path.mkdir(parents=True, exist_ok=True)
                     save_checkpoint(
                         self.model, self.optimizer, save_path, epoch,

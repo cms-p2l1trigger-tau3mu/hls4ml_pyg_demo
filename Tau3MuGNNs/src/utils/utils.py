@@ -4,8 +4,9 @@ import numpy as np
 
 
 def load_checkpoint(model, optimizer, log_path, device):
-    print(f'[INFO] Loading checkpoint from {log_path.name}')
     checkpoint = torch.load(log_path / 'model.pt', map_location=device)
+    load_epoch = checkpoint['epoch']
+    print(f'[INFO] Loading checkpoint from {log_path.name} taken from epoch {load_epoch}')
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     start_epoch = checkpoint['epoch'] + 1
