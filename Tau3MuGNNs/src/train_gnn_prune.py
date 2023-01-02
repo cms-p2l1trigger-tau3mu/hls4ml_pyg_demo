@@ -9,6 +9,7 @@ from models import PruneModel, Model
 from utils import Criterion, Writer, log_epoch, load_checkpoint, save_checkpoint, set_seed, get_data_loaders, add_cuts_to_config
 import torch.nn.utils.prune as prune
 import numpy as np
+import copy
 
 # def countNonZeroWeights(model):
 #     """
@@ -31,7 +32,7 @@ def countNonZeroWeights(model):
     layer_count_alive = {}
     layer_count_total = {}
     for name, p in model.named_parameters():
-        if ("convs" in name):
+        if ("convs" in name) or ("bn" in name):
             continue
         tensor = p.data.cpu().numpy()
         nz_count = np.count_nonzero(tensor)
@@ -84,13 +85,35 @@ def prune_model(model, amount, mask, method=prune.L1Unstructured, device = "cpu"
     prune.global_unstructured(  # global prune the model
         parameters_to_prune,
         pruning_method=method,
-        amount=amount/3,
+        amount=amount/10,
     )
+    #find which nodes of fc_out are pruned, and propagate that to all residual connections
+    fc_out_weight_zeros = (model.fc_out.weight_mask == 0).flatten()
+    # obtain a mask diagonal matrix
+    M = torch.eye(len(fc_out_weight_zeros))
+    M[fc_out_weight_zeros, fc_out_weight_zeros] = 0
+    # and update the weight and weight_mask so that the residual nodes are masked
+    model.node_encoder.weight_mask = torch.mm(M, model.node_encoder.weight_mask)
+    model.node_encoder.weight = torch.mm(M, model.node_encoder.weight)
+    model.edge_encoder.weight_mask = torch.mm(M, model.edge_encoder.weight_mask)
+    model.edge_encoder.weight = torch.mm(M, model.edge_encoder.weight)
+    test_node_weight = model.node_encoder.weight.clone()
+    test_edge_weight = model.edge_encoder.weight.clone()
+    
+    for idx in range(len(model.mlps)):
+        mlp_block = model.mlps[idx]
+        mlp_block.fc1.weight_mask = torch.mm(mlp_block.fc1.weight_mask, M)
+        mlp_block.fc1.weight = torch.mm(mlp_block.fc1.weight, M)
+        mlp_block.fc2.weight_mask = torch.mm(M, mlp_block.fc2.weight_mask)
+        mlp_block.fc2.weight = torch.mm(M, mlp_block.fc2.weight)
+
+
 
     for name, module in model.named_modules():  # make pruning "permanant" by removing the orig/mask values from the state dict
         if isinstance(module, torch.nn.Linear):
             # torch.logical_and(module.weight_mask, mask[name],
             #                   out=mask[name])  # Update progress mask
+            name_mask = mask["weight"][name]
             torch.logical_and(module.weight_mask, mask["weight"][name],
                               out=mask["weight"][name])  # Update progress mask
             torch.logical_and(module.bias_mask, mask["bias"][name],
@@ -98,6 +121,9 @@ def prune_model(model, amount, mask, method=prune.L1Unstructured, device = "cpu"
             prune.remove(module, 'weight')  # remove all those values in the global pruned model
             prune.remove(module, 'bias')  # remove all those values in the global pruned model
 
+    print(f"test_node_weight {torch.all(test_node_weight == model.node_encoder.weight.data)}")
+    print(f"test_edge_weight {torch.all(test_edge_weight == model.edge_encoder.weight.data)}")
+    # sd = model.state_dict() # for debugging
     model.to(device)
     model.mask_to_device(device)
     return model
@@ -182,10 +208,10 @@ class Tau3MuGNNs:
 
         all_loss_dict, all_clf_probs, all_clf_labels = {}, [], []
         pbar = tqdm(data_loader, total=loader_len)
-        break_len = 50
+        # break_len = 50
         for idx, data in enumerate(pbar):
-            if idx == break_len:
-                break
+            # if idx == break_len:
+            #     break
             loss_dict, clf_probs = run_one_batch(data.to(self.device))
 
             desc = log_epoch(epoch, phase, loss_dict, clf_probs, data.y.data.cpu(), batch=True)
@@ -193,8 +219,8 @@ class Tau3MuGNNs:
                 all_loss_dict[k] = all_loss_dict.get(k, 0) + v
             all_clf_probs.append(clf_probs), all_clf_labels.append(data.y.data.cpu())
 
-            # if idx == loader_len - 1:
-            if idx == break_len - 1:
+            if idx == loader_len - 1:
+            # if idx == break_len - 1:
                 all_clf_probs, all_clf_labels = torch.cat(all_clf_probs), torch.cat(all_clf_labels)
                 for k, v in all_loss_dict.items():
                     all_loss_dict[k] = v / loader_len
@@ -209,7 +235,7 @@ class Tau3MuGNNs:
         start_epoch = 0
         best_val_recall = 0
         # prune_epoch_interval = self.config["model"]["prune_interval"]
-        prune_epoch_interval = 1#200
+        prune_epoch_interval = 200
         print(f"[INFO] prune_epoch_interval: {prune_epoch_interval}")
         prune_value_idx = 0
         if self.config['optimizer']['resume']:
@@ -269,6 +295,8 @@ class Tau3MuGNNs:
                 prune_value_idx += 1 # increment for next time
                 # Prune for next iter
                 if prune_value > 0:
+                    print("Pre Pruning: ")
+                    countNonZeroWeights(self.model)
                     self.model = prune_model(self.model, prune_value, self.prune_mask, device = self.device)
                     # Plot weight dist
                     # filename = path.join(options.outputDir, 'weight_dist_{}b_e{}_{}.png'.format(nbits, epoch_counter, time))
