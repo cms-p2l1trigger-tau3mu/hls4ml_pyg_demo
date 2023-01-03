@@ -56,10 +56,46 @@ def prune_model(model, amount, mask, method=prune.L1Unstructured, device = "cpu"
             module_parameters = list(module.named_parameters()) # for debugging
             module_named_buffers = list(module.named_buffers()) # for debugging
 
-    # parameters_to_prune = [
-    #     (model.node_encoder, 'weight'),
-    #     (model.edge_encoder, 'weight'),
-    # ]
+    
+    # Connections to outputs are pruned at third of the rate of the rest of the network
+    parameters_to_prune = [(model.fc_out, 'weight')] # NOTE: not sure if we want to prune that one bias term
+    fc_out_amount_lim = 0.3
+    fc_out_amount = amount/4
+    # enforce the amount limit
+    fc_out_amount = fc_out_amount if fc_out_amount > fc_out_amount_lim else fc_out_amount_lim
+
+    prune.global_unstructured(  # global prune the model
+        parameters_to_prune,
+        pruning_method=method,
+        amount=fc_out_amount,
+    )
+    print(f"[INFO] fc out prune amount: {fc_out_amount}")
+    #find which nodes of fc_out are pruned, and propagate that to all residual connections
+
+    fc_out_weight_zeros = (model.fc_out.weight_mask == 0).flatten()
+    # obtain a mask diagonal matrix
+    M = torch.eye(len(fc_out_weight_zeros))
+    M[fc_out_weight_zeros, fc_out_weight_zeros] = 0
+    # and update the weight and weight_mask so that the residual nodes are masked
+    model.node_encoder.weight_mask = torch.mm(M, model.node_encoder.weight_mask)
+    model.node_encoder.weight = torch.mm(M, model.node_encoder.weight)
+    print(f"node encoder weight and weight mask same? {torch.all(model.node_encoder.weight_mask == (model.node_encoder.weight != 0))}")
+    model.edge_encoder.weight_mask = torch.mm(M, model.edge_encoder.weight_mask)
+    model.edge_encoder.weight = torch.mm(M, model.edge_encoder.weight)
+    test_node_weight = model.node_encoder.weight.clone()
+    test_edge_weight = model.edge_encoder.weight.clone()
+    test_node_weight_mask = model.node_encoder.weight_mask.clone()
+    
+    test_mlp_weight = None
+    for idx in range(len(model.mlps)):
+        mlp_block = model.mlps[idx]
+        mlp_block.fc1.weight_mask = torch.mm(mlp_block.fc1.weight_mask, M)
+        mlp_block.fc1.weight = torch.mm(mlp_block.fc1.weight, M)
+        mlp_block.fc2.weight_mask = torch.mm(M, mlp_block.fc2.weight_mask)
+        mlp_block.fc2.weight = torch.mm(M, mlp_block.fc2.weight)
+        test_mlp_weight = mlp_block.fc2.weight
+
+    # now global prune
     parameters_to_prune = [
         (model.node_encoder, 'weight'),
         (model.edge_encoder, 'weight'),
@@ -80,49 +116,28 @@ def prune_model(model, amount, mask, method=prune.L1Unstructured, device = "cpu"
         pruning_method=method,
         amount=amount,
     )
-    # Connections to outputs are pruned at third of the rate of the rest of the network
-    parameters_to_prune = [(model.fc_out, 'weight'), (model.fc_out, 'bias')]
-    prune.global_unstructured(  # global prune the model
-        parameters_to_prune,
-        pruning_method=method,
-        amount=amount/10,
-    )
-    #find which nodes of fc_out are pruned, and propagate that to all residual connections
-    fc_out_weight_zeros = (model.fc_out.weight_mask == 0).flatten()
-    # obtain a mask diagonal matrix
-    M = torch.eye(len(fc_out_weight_zeros))
-    M[fc_out_weight_zeros, fc_out_weight_zeros] = 0
-    # and update the weight and weight_mask so that the residual nodes are masked
-    model.node_encoder.weight_mask = torch.mm(M, model.node_encoder.weight_mask)
-    model.node_encoder.weight = torch.mm(M, model.node_encoder.weight)
-    model.edge_encoder.weight_mask = torch.mm(M, model.edge_encoder.weight_mask)
-    model.edge_encoder.weight = torch.mm(M, model.edge_encoder.weight)
-    test_node_weight = model.node_encoder.weight.clone()
-    test_edge_weight = model.edge_encoder.weight.clone()
-    
-    for idx in range(len(model.mlps)):
-        mlp_block = model.mlps[idx]
-        mlp_block.fc1.weight_mask = torch.mm(mlp_block.fc1.weight_mask, M)
-        mlp_block.fc1.weight = torch.mm(mlp_block.fc1.weight, M)
-        mlp_block.fc2.weight_mask = torch.mm(M, mlp_block.fc2.weight_mask)
-        mlp_block.fc2.weight = torch.mm(M, mlp_block.fc2.weight)
-
-
+    print(f"[INFO] global prune amount: {amount}")
 
     for name, module in model.named_modules():  # make pruning "permanant" by removing the orig/mask values from the state dict
         if isinstance(module, torch.nn.Linear):
             # torch.logical_and(module.weight_mask, mask[name],
             #                   out=mask[name])  # Update progress mask
-            name_mask = mask["weight"][name]
+            # name_mask = mask["weight"][name]
+            test_mask = module.weight_mask.clone()
             torch.logical_and(module.weight_mask, mask["weight"][name],
                               out=mask["weight"][name])  # Update progress mask
             torch.logical_and(module.bias_mask, mask["bias"][name],
                               out=mask["bias"][name])  # Update progress mask
+            # print(f'update mask different?: {torch.sum(test_mask != mask["weight"][name])}')
+            # print(f'update mask same?: {torch.sum(test_mask == mask["weight"][name])}')
             prune.remove(module, 'weight')  # remove all those values in the global pruned model
             prune.remove(module, 'bias')  # remove all those values in the global pruned model
 
-    print(f"test_node_weight {torch.all(test_node_weight == model.node_encoder.weight.data)}")
-    print(f"test_edge_weight {torch.all(test_edge_weight == model.edge_encoder.weight.data)}")
+    
+    # print(f"test_node_weight {torch.all(test_node_weight == model.node_encoder.weight.data)}")
+    # print(f"test_node_weight_mask {torch.all(test_node_weight_mask == (model.node_encoder.weight.data != 0))}")
+    # print(f"test_edge_weight {torch.all(test_edge_weight == model.edge_encoder.weight.data)}")
+    # print(f"test_mlp_weight {torch.all(test_mlp_weight == model.mlps[-1].fc2.weight.data)}")
     # sd = model.state_dict() # for debugging
     model.to(device)
     model.mask_to_device(device)
@@ -235,7 +250,7 @@ class Tau3MuGNNs:
         start_epoch = 0
         best_val_recall = 0
         # prune_epoch_interval = self.config["model"]["prune_interval"]
-        prune_epoch_interval = 200
+        prune_epoch_interval = 250
         print(f"[INFO] prune_epoch_interval: {prune_epoch_interval}")
         prune_value_idx = 0
         if self.config['optimizer']['resume']:
@@ -246,26 +261,14 @@ class Tau3MuGNNs:
         self.model.to(self.device)
         self.model.mask_to_device(self.device)
         self.model.force_mask_apply()
-        prune_value = 0
+        prune_value = self.prune_value_set[prune_value_idx]
 
         for epoch in range(start_epoch, self.config['optimizer']['epochs'] + 1):
             time_to_prune = epoch%prune_epoch_interval==0 and self.config["model"]["lottery"]
             
             time_to_prune =  time_to_prune and (prune_value_idx < len(self.prune_value_set)) # if already at last prune_value, then skip
 
-            # if time_to_prune:
-            #     print("~~~~~!~!~!~!~!~!~Resetting Model!~!~!~!~!~!~~~~~\n\n")
-            #     print("Resetting Model to Inital State dict with masks applied. Verifying via param count.\n\n")
-            #     self.model.load_state_dict(self.init_sd)
-            #     self.model.update_masks(self.prune_mask)
-            #     self.model.to(self.device)
-            #     self.model.mask_to_device(self.device)
-            #     self.model.force_mask_apply()
-            #     countNonZeroWeights(self.model)
-
-
             self.run_one_epoch(self.data_loaders['train'], epoch, 'train')
-
             if epoch % self.config['eval']['test_interval'] == 0:
                 valid_res = self.run_one_epoch(self.data_loaders['valid'], epoch, 'valid')
                 test_res = self.run_one_epoch(self.data_loaders['test'], epoch, 'test')
@@ -297,7 +300,9 @@ class Tau3MuGNNs:
                 if prune_value > 0:
                     print("Pre Pruning: ")
                     countNonZeroWeights(self.model)
+                    test_prune_node_encoder_mask = self.prune_mask["weight"]["node_encoder"].clone()
                     self.model = prune_model(self.model, prune_value, self.prune_mask, device = self.device)
+                    print(f"mask same?: {torch.all(test_prune_node_encoder_mask == self.prune_mask['weight']['node_encoder'])}")
                     # Plot weight dist
                     # filename = path.join(options.outputDir, 'weight_dist_{}b_e{}_{}.png'.format(nbits, epoch_counter, time))
                     print("Post Pruning: ")
