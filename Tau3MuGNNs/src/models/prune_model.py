@@ -20,6 +20,9 @@ class PruneModel(nn.Module):
         self.deepgcn_aggr = model_config['deepgcn_aggr']
         self.bn_input = model_config['bn_input']
         self.virtual_node = virtual_node
+        self.model_config = model_config
+        self.x_dim = x_dim
+        self.edge_attr_dim = edge_attr_dim
 
         self.convs = nn.ModuleList()
         self.mlps = nn.ModuleList()

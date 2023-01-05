@@ -45,116 +45,8 @@ def countNonZeroWeights(model):
     print(f'alive: {nonzero}, pruned : {total - nonzero}, total: {total}, Compression rate : {total/nonzero:10.2f}x  ({100 * (total-nonzero) / total:6.2f}% pruned)')
     return nonzero, total, layer_count_alive, layer_count_total
 
-def prune_model(model, amount, mask, 
-    method=prune.L1Unstructured, device = "cpu", additional_method = "vanilla"
-    ):
-    model.to('cpu')
-    model.mask_to_device('cpu')
-    for name, module in model.named_modules():  # re-apply current mask to the model
-        if isinstance(module, torch.nn.Linear):
-            # prune.custom_from_mask(module, "weight", mask[name])
-            prune.custom_from_mask(module, "weight", mask["weight"][name])
-            prune.custom_from_mask(module, "bias", mask["bias"][name])
-            module_parameters = list(module.named_parameters()) # for debugging
-            module_named_buffers = list(module.named_buffers()) # for debugging
 
-    if (additional_method == "vanilla") or (additional_method == "residual"):
-        # Connections to outputs are pruned at third of the rate of the rest of the network
-        parameters_to_prune = [(model.fc_out, 'weight')] # NOTE: not sure if we want to prune that one bias term
-        fc_out_amount_lim = 0.3
-        fc_out_amount = amount/4
-        # enforce the amount limit
-        fc_out_amount = fc_out_amount if fc_out_amount > fc_out_amount_lim else fc_out_amount_lim
 
-        prune.global_unstructured(  # global prune the model
-            parameters_to_prune,
-            pruning_method=method,
-            amount=fc_out_amount,
-        )
-        print(f"[INFO] fc out prune amount: {fc_out_amount}")
-
-    if additional_method == "vanilla":
-        pass
-    elif additional_method == "residual":
-        print(f"[INFO] {additional_method} additional pruning method")
-        #find which nodes of fc_out are pruned, and propagate that to all residual connections
-        fc_out_weight_zeros = (model.fc_out.weight_mask == 0).flatten()
-        # obtain a mask diagonal matrix
-        M = torch.eye(len(fc_out_weight_zeros))
-        M[fc_out_weight_zeros, fc_out_weight_zeros] = 0
-        # and update the weight and weight_mask so that the residual nodes are masked
-        model.node_encoder.weight_mask = torch.mm(M, model.node_encoder.weight_mask)
-        model.node_encoder.weight = torch.mm(M, model.node_encoder.weight)
-        print(f"node encoder weight and weight mask same? {torch.all(model.node_encoder.weight_mask == (model.node_encoder.weight != 0))}")
-        model.edge_encoder.weight_mask = torch.mm(M, model.edge_encoder.weight_mask)
-        model.edge_encoder.weight = torch.mm(M, model.edge_encoder.weight)
-        test_node_weight = model.node_encoder.weight.clone()
-        test_edge_weight = model.edge_encoder.weight.clone()
-        test_node_weight_mask = model.node_encoder.weight_mask.clone()
-        
-        test_mlp_weight = None
-        for idx in range(len(model.mlps)):
-            mlp_block = model.mlps[idx]
-            mlp_block.fc1.weight_mask = torch.mm(mlp_block.fc1.weight_mask, M)
-            mlp_block.fc1.weight = torch.mm(mlp_block.fc1.weight, M)
-            mlp_block.fc2.weight_mask = torch.mm(M, mlp_block.fc2.weight_mask)
-            mlp_block.fc2.weight = torch.mm(M, mlp_block.fc2.weight)
-            test_mlp_weight = mlp_block.fc2.weight
-    elif additional_method == "kl":
-        # use kl divergence residual channel pruning method shown in https://openaccess.thecvf.com/content_CVPR_2020/papers/Luo_Neural_Network_Pruning_With_Residual-Connections_and_Limited-Data_CVPR_2020_paper.pdf
-        pass
-        # phase = "valid" # phase is valid, but data is train to put model in eval() mode
-        # self.run_one_epoch(self.data_loaders['train'], epoch, phase, break_len=break_len)
-    else:
-        raise NotImplementedError
-
-    # now global prune
-    parameters_to_prune = [
-        (model.node_encoder, 'weight'),
-        (model.edge_encoder, 'weight'),
-        # (model.fc_out, 'weight'),
-        (model.node_encoder, 'bias'),
-        (model.edge_encoder, 'bias'),
-        # (model.fc_out, 'bias')
-    ]
-    for idx in range(len(model.mlps)):
-        mlp = model.mlps[idx]
-        parameters_to_prune.append(((mlp.fc1, 'weight')))
-        parameters_to_prune.append(((mlp.fc2, 'weight')))
-        parameters_to_prune.append(((mlp.fc1, 'bias')))
-        parameters_to_prune.append(((mlp.fc2, 'bias')))
-
-    prune.global_unstructured(  # global prune the model
-        parameters_to_prune,
-        pruning_method=method,
-        amount=amount,
-    )
-    print(f"[INFO] global prune amount: {amount}")
-
-    for name, module in model.named_modules():  # make pruning "permanant" by removing the orig/mask values from the state dict
-        if isinstance(module, torch.nn.Linear):
-            # torch.logical_and(module.weight_mask, mask[name],
-            #                   out=mask[name])  # Update progress mask
-            # name_mask = mask["weight"][name]
-            test_mask = module.weight_mask.clone()
-            torch.logical_and(module.weight_mask, mask["weight"][name],
-                              out=mask["weight"][name])  # Update progress mask
-            torch.logical_and(module.bias_mask, mask["bias"][name],
-                              out=mask["bias"][name])  # Update progress mask
-            # print(f'update mask different?: {torch.sum(test_mask != mask["weight"][name])}')
-            # print(f'update mask same?: {torch.sum(test_mask == mask["weight"][name])}')
-            prune.remove(module, 'weight')  # remove all those values in the global pruned model
-            prune.remove(module, 'bias')  # remove all those values in the global pruned model
-
-    
-    # print(f"test_node_weight {torch.all(test_node_weight == model.node_encoder.weight.data)}")
-    # print(f"test_node_weight_mask {torch.all(test_node_weight_mask == (model.node_encoder.weight.data != 0))}")
-    # print(f"test_edge_weight {torch.all(test_edge_weight == model.edge_encoder.weight.data)}")
-    # print(f"test_mlp_weight {torch.all(test_mlp_weight == model.mlps[-1].fc2.weight.data)}")
-    # sd = model.state_dict() # for debugging
-    model.to(device)
-    model.mask_to_device(device)
-    return model
 
 class Tau3MuGNNs:
 
@@ -182,15 +74,8 @@ class Tau3MuGNNs:
                 "edge_encoder": torch.ones(common_dim),
                 "fc_out": torch.ones(1)
             }
-            
         }
         # make masks for mlp blocks
-        # for idx in range(self.config['model']['n_layers']):
-        #     mlp_mask = {
-        #         "fc1" :torch.ones(2*common_dim, common_dim),
-        #         "fc2" :torch.ones(common_dim, 2*common_dim)
-        #     }
-        #     self.prune_mask[f"mlp_{idx}"] = mlp_mask
         for idx in range(self.config['model']['n_layers']):
             self.prune_mask["weight"][f"mlps.{idx}.fc1"] = torch.ones(2*common_dim, common_dim)
             self.prune_mask["weight"][f"mlps.{idx}.fc2"] = torch.ones(common_dim, 2*common_dim)
@@ -206,22 +91,45 @@ class Tau3MuGNNs:
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config['optimizer']['lr'])
         self.criterion = Criterion(config['optimizer'])
         
-        
+        # for kl divergence residual node pruning
+        self.kl_prune_counter = np.zeros(common_dim)
 
         print(f'[INFO] Number of trainable parameters: {sum(p.numel() for p in self.model.parameters())}')
-        
-    @torch.no_grad()
-    def eval_one_batch(self, data):
-        self.model.eval()
 
-        clf_probs = self.model(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr, batch=data.batch, data=data)
+
+
+
+    # @torch.no_grad()
+    # def eval_one_batch(self, data):
+    #     self.model.eval()
+
+    #     clf_probs = self.model(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr, batch=data.batch, data=data)
+    #     loss, loss_dict = self.criterion(clf_probs, data.y)
+    #     return loss_dict, clf_probs.data.cpu()
+
+    # def train_one_batch(self, data):
+    #     self.model.train()
+
+    #     clf_probs = self.model(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr, batch=data.batch, data=data)
+    #     loss, loss_dict = self.criterion(clf_probs, data.y)
+
+    #     self.optimizer.zero_grad()
+    #     loss.backward()
+    #     self.optimizer.step()
+    #     return loss_dict, clf_probs.data.cpu()
+
+    @torch.no_grad()
+    def eval_one_batch(self, model, data):
+        model.eval()
+
+        clf_probs = model(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr, batch=data.batch, data=data)
         loss, loss_dict = self.criterion(clf_probs, data.y)
         return loss_dict, clf_probs.data.cpu()
 
-    def train_one_batch(self, data):
-        self.model.train()
+    def train_one_batch(self, model, data):
+        model.train()
 
-        clf_probs = self.model(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr, batch=data.batch, data=data)
+        clf_probs = model(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr, batch=data.batch, data=data)
         loss, loss_dict = self.criterion(clf_probs, data.y)
 
         self.optimizer.zero_grad()
@@ -241,7 +149,7 @@ class Tau3MuGNNs:
             if break_len is not None:
                 if idx == break_len:
                     break
-            loss_dict, clf_probs = run_one_batch(data.to(self.device))
+            loss_dict, clf_probs = run_one_batch(self.model, data.to(self.device))
 
             desc = log_epoch(epoch, phase, loss_dict, clf_probs, data.y.data.cpu(), batch=True)
             for k, v in loss_dict.items():
@@ -258,6 +166,245 @@ class Tau3MuGNNs:
             pbar.set_description(desc)
 
         return avg_loss, auroc, recall
+
+    def run_one_epoch_kl_prune(self, model, data_loader, break_len = None):
+        all_clf_probs = []
+        for idx, data in enumerate(data_loader):
+            if break_len is not None:
+                if idx == break_len:
+                    break
+            _, clf_probs = self.eval_one_batch(model, data.to(self.device))
+            all_clf_probs.append(clf_probs)
+        return torch.cat(all_clf_probs)
+
+    def getKLDivergence(self, data_loader, new_model,  break_len = None):
+        # get clf_probs of the original
+        new_model.to(self.device)
+        new_model.mask_to_device(self.device)
+        self.model.to(self.device)
+        self.model.mask_to_device(self.device)
+        self.model
+        original_clf_probs = self.run_one_epoch_kl_prune(
+            self.model, data_loader, break_len=break_len
+        ).flatten()
+        new_clf_probs = self.run_one_epoch_kl_prune(
+            new_model, data_loader, break_len=break_len
+        ).flatten()
+        new_model.to('cpu')
+        new_model.mask_to_device('cpu')
+        self.model.to('cpu')
+        self.model.mask_to_device('cpu')
+        
+        # https://pytorch.org/docs/stable/generated/torch.nn.KLDivLoss.html 
+        # states that the input is assumed to be log probability, whereas target is not
+        return torch.nn.KLDivLoss(reduction='batchmean')(torch.log(new_clf_probs), original_clf_probs)
+        # kl_div_arr = torch.zeros(len(original_clf_probs))
+        # # original_clf_probs is p_i, and new_clf_probs is q_i
+        # kl_div_arr += original_clf_probs *(torch.log(original_clf_probs)- torch.log(new_clf_probs))
+        # kl_div_arr += (1-original_clf_probs)*(torch.log(1-original_clf_probs)- torch.log(1-new_clf_probs))
+        # return torch.mean(kl_div_arr)
+        
+
+    @torch.no_grad()
+    def getKLPrunedModelNMask(self, res_prune_idxs):
+        # deepcopying the model doesn't work, so just load the state dict
+        # new_model = PruneModel(
+        #     self.prune_mask, self.model.x_dim, self.model.edge_attr_dim, 
+        #     self.model.virtual_node, self.model.model_config
+        # )
+        # new_model.load_state_dict(self.model.state_dict())
+        new_model = copy.deepcopy(self.model)
+        new_model.to('cpu')
+        new_model.mask_to_device('cpu')
+        new_prune_mask = copy.deepcopy(self.prune_mask)
+        # prune residual nodes related to the res_prune_idx
+        common_dim = self.model.out_channels
+        pruning_condition = torch.zeros(common_dim, dtype=torch.bool)
+        pruning_condition[res_prune_idxs] = True
+        M = torch.eye(common_dim)
+        M[pruning_condition, pruning_condition] = 0
+        new_model.node_encoder.weight.data = torch.mm(M, new_model.node_encoder.weight.data)
+        new_model.edge_encoder.weight.data = torch.mm(M, new_model.edge_encoder.weight.data)
+        new_prune_mask["weight"]["node_encoder"] = torch.mm(M, new_prune_mask["weight"]["node_encoder"])
+        new_prune_mask["weight"]["edge_encoder"] = torch.mm(M, new_prune_mask["weight"]["edge_encoder"])
+
+        # # zeroing the biases doesn't matter if we zero the first layer of mlps blocks,
+        # # but just for the numbers ??? 
+        # new_model.node_encoder.bias.data[res_prune_idx] = 0
+        # new_model.edge_encoder.bias.data[res_prune_idx] = 0
+        for idx in range(len(new_model.mlps)):
+            mlp_block = new_model.mlps[idx]
+            mlp_block.fc1.weight.data = torch.mm(mlp_block.fc1.weight.data, M)
+            mlp_block.fc2.weight.data = torch.mm(M, mlp_block.fc2.weight.data)
+            new_prune_mask["weight"][f"mlps.{idx}.fc1"] = torch.mm(new_prune_mask["weight"][f"mlps.{idx}.fc1"], M)
+            new_prune_mask["weight"][f"mlps.{idx}.fc2"] = torch.mm(M, new_prune_mask["weight"][f"mlps.{idx}.fc2"])
+        
+        new_model.fc_out.weight.data = torch.mm(new_model.fc_out.weight.data, M)
+        new_prune_mask["weight"]["fc_out"] = torch.mm(new_prune_mask["weight"]["fc_out"], M)
+
+        new_model.update_masks(new_prune_mask)
+        # new_model.to(self.device)
+        # new_model.mask_to_device(self.device)
+        new_model.force_mask_apply()
+        return new_model, new_prune_mask
+
+    def prune_model(self, model, amount, mask, 
+        method=prune.L1Unstructured, device = "cpu", additional_method = "vanilla"
+        ):
+        model.to('cpu')
+        model.mask_to_device('cpu')
+        # for name, module in model.named_modules():  # re-apply current mask to the model
+        #     if isinstance(module, torch.nn.Linear):
+        #         # prune.custom_from_mask(module, "weight", mask[name])
+        #         prune.custom_from_mask(module, "weight", mask["weight"][name])
+        #         prune.custom_from_mask(module, "bias", mask["bias"][name])
+        #         module_parameters = list(module.named_parameters()) # for debugging
+        #         module_named_buffers = list(module.named_buffers()) # for debugging
+
+        res_prune_amount_lim = 0.3
+        fc_out_amount = amount/4
+
+        if (additional_method == "vanilla") or (additional_method == "residual"):
+            # prune only fc_out
+            # Connections to outputs are pruned at third of the rate of the rest of the network
+            parameters_to_prune = [(model.fc_out, 'weight')] # NOTE: not sure if we want to prune that one bias term
+
+            # enforce the amount limit
+            fc_out_amount = fc_out_amount if fc_out_amount < res_prune_amount_lim else res_prune_amount_lim
+
+            prune.global_unstructured(  
+                parameters_to_prune,
+                pruning_method=method,
+                amount=fc_out_amount,
+            )
+            print(f"[INFO] fc out prune amount: {fc_out_amount}")
+
+        print(f"[INFO] {additional_method} additional pruning method")
+        if additional_method == "vanilla":
+            pass
+        elif additional_method == "residual":
+            #find which nodes of fc_out are pruned, and propagate that to all residual connections
+            fc_out_weight_zeros = (model.fc_out.weight_mask == 0).flatten()
+            # obtain a mask diagonal matrix
+            M = torch.eye(len(fc_out_weight_zeros))
+            M[fc_out_weight_zeros, fc_out_weight_zeros] = 0
+            # and update the weight and weight_mask so that the residual nodes are masked
+            model.node_encoder.weight_mask = torch.mm(M, model.node_encoder.weight_mask)
+            model.node_encoder.weight = torch.mm(M, model.node_encoder.weight)
+            print(f"node encoder weight and weight mask same? {torch.all(model.node_encoder.weight_mask == (model.node_encoder.weight != 0))}")
+            model.edge_encoder.weight_mask = torch.mm(M, model.edge_encoder.weight_mask)
+            model.edge_encoder.weight = torch.mm(M, model.edge_encoder.weight)
+            test_node_weight = model.node_encoder.weight.clone()
+            test_edge_weight = model.edge_encoder.weight.clone()
+            test_node_weight_mask = model.node_encoder.weight_mask.clone()
+            
+            test_mlp_weight = None
+            for idx in range(len(model.mlps)):
+                mlp_block = model.mlps[idx]
+                mlp_block.fc1.weight_mask = torch.mm(mlp_block.fc1.weight_mask, M)
+                mlp_block.fc1.weight = torch.mm(mlp_block.fc1.weight, M)
+                mlp_block.fc2.weight_mask = torch.mm(M, mlp_block.fc2.weight_mask)
+                mlp_block.fc2.weight = torch.mm(M, mlp_block.fc2.weight)
+                test_mlp_weight = mlp_block.fc2.weight
+        
+        elif additional_method == "kl":    
+            # use kl divergence residual channel pruning method shown in https://openaccess.thecvf.com/content_CVPR_2020/papers/Luo_Neural_Network_Pruning_With_Residual-Connections_and_Limited-Data_CVPR_2020_paper.pdf
+            kl_break_len = self.config["model"]["kl_method_break_len"]
+            # get residual node/channel indexes to prune
+
+            # get amount of nodes to prune
+            total_n_nodes_to_prune = fc_out_amount if fc_out_amount < res_prune_amount_lim else res_prune_amount_lim
+            total_n_nodes_to_prune = int(total_n_nodes_to_prune*self.config['model']['out_channels'])
+
+            
+            pruned_idxs = np.argwhere(self.kl_prune_counter==100).flatten() # val of hundred means it's pruned
+            n_nodes_to_prune = total_n_nodes_to_prune - len(pruned_idxs)
+            if n_nodes_to_prune > 0:
+                # grab all node idx that aren't pruned yet
+                if len(pruned_idxs) ==0:
+                    prunable_idxs = np.arange(len(self.kl_prune_counter))
+                else:
+                    prunable_idxs = np.argpartition(self.kl_prune_counter, -len(pruned_idxs))[:-len(pruned_idxs)]
+                
+                for prunable_idx in prunable_idxs:
+                    new_model, _ = self.getKLPrunedModelNMask([prunable_idx])
+                    kl_div = self.getKLDivergence(
+                        self.data_loaders['train'], new_model, break_len=kl_break_len
+                    )
+                    # print(f"kl_div: {kl_div}")
+                    # update prune counter
+                    self.kl_prune_counter[prunable_idx] = kl_div
+
+                # get the lowest kl div nodes and prune
+                idxs_to_prune = np.argpartition(self.kl_prune_counter, n_nodes_to_prune)[:n_nodes_to_prune]
+                # prune 
+                self.model, self.prune_mask = self.getKLPrunedModelNMask([idxs_to_prune])
+                # update prune counter after pruning
+                self.kl_prune_counter[idxs_to_prune] = 100
+
+
+            print(f"kl pruning test: {torch.all(self.model.node_encoder.weight.data[self.kl_prune_counter==100,:] == 0)}")
+            # get the best percent of 
+
+        else:
+            raise NotImplementedError
+
+        for name, module in model.named_modules():  # re-apply current mask to the model
+            if isinstance(module, torch.nn.Linear):
+                # prune.custom_from_mask(module, "weight", mask[name])
+                prune.custom_from_mask(module, "weight", mask["weight"][name])
+                prune.custom_from_mask(module, "bias", mask["bias"][name])
+                module_parameters = list(module.named_parameters()) # for debugging
+                module_named_buffers = list(module.named_buffers()) # for debugging
+
+        # now global prune
+        parameters_to_prune = [
+            (model.node_encoder, 'weight'),
+            (model.edge_encoder, 'weight'),
+            # (model.fc_out, 'weight'),
+            (model.node_encoder, 'bias'),
+            (model.edge_encoder, 'bias'),
+            # (model.fc_out, 'bias')
+        ]
+        for idx in range(len(model.mlps)):
+            mlp = model.mlps[idx]
+            parameters_to_prune.append(((mlp.fc1, 'weight')))
+            parameters_to_prune.append(((mlp.fc2, 'weight')))
+            parameters_to_prune.append(((mlp.fc1, 'bias')))
+            parameters_to_prune.append(((mlp.fc2, 'bias')))
+
+        prune.global_unstructured(  # global prune the model
+            parameters_to_prune,
+            pruning_method=method,
+            amount=amount,
+        )
+        print(f"[INFO] global prune amount: {amount}")
+
+        for name, module in model.named_modules():  # make pruning "permanant" by removing the orig/mask values from the state dict
+            if isinstance(module, torch.nn.Linear):
+                # torch.logical_and(module.weight_mask, mask[name],
+                #                   out=mask[name])  # Update progress mask
+                # name_mask = mask["weight"][name]
+                test_mask = module.weight_mask.clone()
+                torch.logical_and(module.weight_mask, mask["weight"][name],
+                                out=mask["weight"][name])  # Update progress mask
+                torch.logical_and(module.bias_mask, mask["bias"][name],
+                                out=mask["bias"][name])  # Update progress mask
+                # print(f'update mask different?: {torch.sum(test_mask != mask["weight"][name])}')
+                # print(f'update mask same?: {torch.sum(test_mask == mask["weight"][name])}')
+                prune.remove(module, 'weight')  # remove all those values in the global pruned model
+                prune.remove(module, 'bias')  # remove all those values in the global pruned model
+
+        
+        # print(f"test_node_weight {torch.all(test_node_weight == model.node_encoder.weight.data)}")
+        # print(f"test_node_weight_mask {torch.all(test_node_weight_mask == (model.node_encoder.weight.data != 0))}")
+        # print(f"test_edge_weight {torch.all(test_edge_weight == model.edge_encoder.weight.data)}")
+        # print(f"test_mlp_weight {torch.all(test_mlp_weight == model.mlps[-1].fc2.weight.data)}")
+        # sd = model.state_dict() # for debugging
+        model.to(device)
+        model.mask_to_device(device)
+        return model
+
 
     def train(self):
         torch.autograd.set_detect_anomaly(True)
@@ -317,7 +464,7 @@ class Tau3MuGNNs:
                     print("Pre Pruning: ")
                     countNonZeroWeights(self.model)
                     test_prune_node_encoder_mask = self.prune_mask["weight"]["node_encoder"].clone()
-                    self.model = prune_model(
+                    self.model = self.prune_model(
                         self.model, prune_value, self.prune_mask, 
                         device = self.device, additional_method=self.config["model"]["additional_prune_method"]
                     )
