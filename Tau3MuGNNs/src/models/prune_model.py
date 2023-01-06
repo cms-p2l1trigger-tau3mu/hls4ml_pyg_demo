@@ -11,7 +11,6 @@ import torch.nn.functional as F
 class PruneModel(nn.Module):
     def __init__(self, masks, x_dim, edge_attr_dim, virtual_node, model_config):
         super(PruneModel, self).__init__()
-        print(f"non bv model")
         self.out_channels = model_config['out_channels']
         self.n_layers = model_config['n_layers']
         self.dropout_p = model_config['dropout_p']
