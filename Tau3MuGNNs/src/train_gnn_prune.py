@@ -324,7 +324,7 @@ class Tau3MuGNNs:
             test_node_weight_mask = self.model.node_encoder.weight_mask.clone()
             
             test_mlp_weight = None
-            for idx in range(len(model.mlps)):
+            for idx in range(len(self.model.mlps)):
                 mlp_block = self.model.mlps[idx]
                 mlp_block.fc1.weight_mask = torch.mm(mlp_block.fc1.weight_mask, M)
                 mlp_block.fc1.weight = torch.mm(mlp_block.fc1.weight, M)
