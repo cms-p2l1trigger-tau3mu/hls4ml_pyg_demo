@@ -1,0 +1,56 @@
+data:
+  data_dir: ../data
+  log_dir: ../data/logs
+  add_self_loops: True           # Add self-loops to the graph?
+  only_one_tau: True             # Only use samples with tau = 1?
+  splits:
+    train: 0.7                   # Fraction of pos200 to use for training
+    valid: 0.15                  # Fraction of pos200 to use for validation
+    test: 0.15                   # Fraction of pos200 to use for testing
+  pos_neg_ratio: 0.2             # Ratio of positive to negative samples, e.g. pos200/neg200 = 0.2 in the training set
+  radius: 1.0                    # dR value to use for constructing the graph for ecah sample
+  virtual_node: True             # Add virtual nodes to the graph?
+
+  conditions:
+    1-mu_hit_station: '==1'      # Only use muon hits from station 1. One can set '<=2' or '<=4' to include more stations
+    2-mu_hit_neighbor: '==0'
+    3-mu_hit_type: '!=0'
+
+  node_feature_names:            # Node features to use
+    - mu_hit_sim_z
+    - mu_hit_sim_eta
+    - mu_hit_bend
+  edge_feature_names:            # Edge features to use
+    - mu_hit_sim_z
+    - mu_hit_sim_eta
+    - mu_hit_bend
+    - mu_hit_sim_phi
+
+model:
+  quantization: True # use brevitas if true, else normal layers
+  bn_input: True                 # Batch normalization on input features? This is to normalize the input features
+  n_layers: 8 #8                    # Number of GNN layers
+  out_channels: 128 #128              # Number of hidden channels for each GNN layer
+  dropout_p: 0                 # Dropout probability
+  readout: pool                  # Specify the method to use for the readout layer. One can also use 'lstm', 'vn' or 'jknet'
+  norm_type: batch               # Specify the type of normalization to use. One can also use 'instance', 'layer' or 'graph'
+  deepgcn_aggr: sum #softmax          # Aggregation function for the DeeperGCN layers. Please refer to their documentation for more details
+  lottery: True
+  additional_prune_method: kl 
+  kl_method_break_len: 100
+
+# batchnorm is pure torch
+# output layer + activation is quantized
+
+eval:
+  test_interval: 5 #3               # Interval (in epochs) to evaluate on the test set
+  auroc_max_fpr: 0.001           # Maximum false positive rate we are interested to record
+
+optimizer:
+  resume: False                  # Resume training from a previous checkpoint?
+  lr: 1.0e-3                     # Learning rate
+  batch_size: 512 #256                # Batch size
+  epochs: 1800 #500                    # Number of epochs to train for
+  focal_loss: True               # Use focal loss for the loss function? Otherwise, use binary cross entropy
+  focal_alpha: 0.8               # Focal loss alpha hyperparameter
+  focal_gamma: 5                 # Focal loss gamma hyperparameter
