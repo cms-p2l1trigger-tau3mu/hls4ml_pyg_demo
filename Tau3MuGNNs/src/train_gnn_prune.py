@@ -149,7 +149,8 @@ class Tau3MuGNNs:
         phase = 'test ' if phase == 'test' else phase  # align tqdm desc bar
 
         all_loss_dict, all_clf_probs, all_clf_labels = {}, [], []
-        pbar = tqdm(data_loader, total=loader_len)
+        hide_pbar = False # True if using nohup
+        pbar = tqdm(data_loader, total=loader_len, disable=hide_pbar)
         # break_len = 50
         for idx, data in enumerate(pbar):
             if break_len is not None:
@@ -430,7 +431,7 @@ class Tau3MuGNNs:
         start_epoch = 0
         best_val_recall = 0
         # prune_epoch_interval = self.config["model"]["prune_interval"]
-        prune_epoch_interval = 250
+        prune_epoch_interval = 200
         print(f"[INFO] prune_epoch_interval: {prune_epoch_interval}")
         prune_value_idx = 0
         if self.config['optimizer']['resume']:
