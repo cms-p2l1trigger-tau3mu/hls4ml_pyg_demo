@@ -93,6 +93,7 @@ class Tau3MuGNNs:
         
         # for kl divergence residual node pruning
         self.kl_prune_counter = np.zeros(common_dim)
+        self.global_recall_prune_counter = np.ones(common_dim)*100
 
         print(f'[INFO] Number of trainable parameters: {sum(p.numel() for p in self.model.parameters())}')
 
@@ -143,7 +144,8 @@ class Tau3MuGNNs:
         self.optimizer.step()
         return loss_dict, clf_probs.data.cpu()
 
-    def run_one_epoch(self, data_loader, epoch, phase, break_len = None):
+    def run_one_epoch(self, data_loader, epoch, phase, 
+        break_len = None, new_model=None):
         loader_len = len(data_loader)
         run_one_batch = self.train_one_batch if phase == 'train' else self.eval_one_batch
         phase = 'test ' if phase == 'test' else phase  # align tqdm desc bar
@@ -156,7 +158,8 @@ class Tau3MuGNNs:
             if break_len is not None:
                 if idx == break_len:
                     break
-            loss_dict, clf_probs = run_one_batch(self.model, data.to(self.device))
+            model = new_model if new_model is not None else self.model
+            loss_dict, clf_probs = run_one_batch(model, data.to(self.device))
 
             desc = log_epoch(epoch, phase, loss_dict, clf_probs, data.y.data.cpu(), batch=True)
             for k, v in loss_dict.items():
@@ -168,11 +171,11 @@ class Tau3MuGNNs:
                 all_clf_probs, all_clf_labels = torch.cat(all_clf_probs), torch.cat(all_clf_labels)
                 for k, v in all_loss_dict.items():
                     all_loss_dict[k] = v / loader_len
-                desc, auroc, recall, avg_loss = log_epoch(epoch, phase, all_loss_dict, all_clf_probs, all_clf_labels, False, self.writer)
+                desc, auroc, onekHz_recall, avg_loss = log_epoch(epoch, phase, all_loss_dict, all_clf_probs, all_clf_labels, False, self.writer)
                 print(desc)
             pbar.set_description(desc)
 
-        return avg_loss, auroc, recall
+        return avg_loss, auroc, onekHz_recall
 
     def run_one_epoch_kl_prune(self, model, data_loader, break_len = None):
         all_clf_probs = []
@@ -203,7 +206,7 @@ class Tau3MuGNNs:
         
         # https://pytorch.org/docs/stable/generated/torch.nn.KLDivLoss.html 
         # states that the input is assumed to be log probability, whereas target is not
-        return torch.nn.KLDivLoss(reduction='batchmean')(torch.log(new_clf_probs), original_clf_probs)
+        return torch.abs(torch.nn.KLDivLoss(reduction='batchmean')(torch.log(new_clf_probs), original_clf_probs))
         # kl_div_arr = torch.zeros(len(original_clf_probs))
         # # original_clf_probs is p_i, and new_clf_probs is q_i
         # kl_div_arr += original_clf_probs *(torch.log(original_clf_probs)- torch.log(new_clf_probs))
@@ -287,7 +290,7 @@ class Tau3MuGNNs:
                 module_parameters = list(module.named_parameters()) # for debugging
                 module_named_buffers = list(module.named_buffers()) # for debugging
 
-        res_prune_amount_lim = 0.1#0.3
+        res_prune_amount_lim = 0.3
         fc_out_amount = amount/4
 
         if (additional_method == "vanilla") or (additional_method == "residual"):
@@ -343,7 +346,8 @@ class Tau3MuGNNs:
             total_n_nodes_to_prune = int(total_n_nodes_to_prune*self.config['model']['out_channels'])
             print(f"total_n_nodes_to_prune: {total_n_nodes_to_prune}")
             
-            pruned_idxs = np.argwhere(self.kl_prune_counter==100).flatten() # val of hundred means it's pruned
+            pruned_node_val = 100
+            pruned_idxs = np.argwhere(self.kl_prune_counter==pruned_node_val).flatten() # val of hundred means it's pruned
             n_nodes_to_prune = total_n_nodes_to_prune - len(pruned_idxs)
             if n_nodes_to_prune > 0:
                 # grab all node idx that aren't pruned yet
@@ -366,13 +370,62 @@ class Tau3MuGNNs:
                 # prune 
                 self.model = self.getKLPrunedModelNMask([idxs_to_prune])
                 # update prune counter after pruning
-                self.kl_prune_counter[idxs_to_prune] = 100
+                self.kl_prune_counter[idxs_to_prune] = pruned_node_val
                 self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config['optimizer']['lr'])
                 self.criterion = Criterion(self.config['optimizer'])
 
-            print(f"kl pruning test: {torch.all(self.model.node_encoder.weight.data[self.kl_prune_counter==100,:] == 0)}")
+            print(f"kl pruning test: {torch.all(self.model.node_encoder.weight.data[self.kl_prune_counter==pruned_node_val,:] == 0)}")
             # get the best percent of 
+        
+        elif additional_method == "global_recall":    
+            # use kl divergence residual channel pruning method shown in https://openaccess.thecvf.com/content_CVPR_2020/papers/Luo_Neural_Network_Pruning_With_Residual-Connections_and_Limited-Data_CVPR_2020_paper.pdf
+            global_recall_break_len = self.config["model"]["kl_method_break_len"]
+            # get residual node/channel indexes to prune
 
+            # get amount of nodes to prune
+            total_n_nodes_to_prune = fc_out_amount if fc_out_amount < res_prune_amount_lim else res_prune_amount_lim
+            total_n_nodes_to_prune = int(total_n_nodes_to_prune*self.config['model']['out_channels'])
+            print(f"total_n_nodes_to_prune: {total_n_nodes_to_prune}")
+            
+            pruned_node_val = -1
+            pruned_idxs = np.argwhere(self.global_recall_prune_counter==pruned_node_val).flatten() # val of hundred means it's pruned
+            n_nodes_to_prune = total_n_nodes_to_prune - len(pruned_idxs)
+            if n_nodes_to_prune > 0:
+                # grab all node idx that aren't pruned yet
+                n_pruned_nodes = len(pruned_idxs)
+                if len(pruned_idxs) ==0:
+                    prunable_idxs = np.arange(len(self.global_recall_prune_counter))
+                else:
+                    prunable_idxs = np.argpartition(self.global_recall_prune_counter, n_pruned_nodes)[n_pruned_nodes:]
+                
+                for prunable_idx in prunable_idxs:
+                    new_model = self.getKLPrunedModelNMask([prunable_idx])
+                    new_model.to(self.device)
+                    new_model.mask_to_device(self.device)
+                    print(f"prunable idx: {prunable_idx}")
+                    epoch = -1 # dummy epoch indicating to not log this epoch
+                    results = self.run_one_epoch(
+                        self.data_loaders['train'], epoch, 'valid', 
+                        break_len=global_recall_break_len, new_model=new_model
+                    )
+                    onekHz_recall = results[-1]
+                    print(f"onekHz_recall: {onekHz_recall}")
+                    # print(f"kl_div: {kl_div}")
+                    # update prune counter
+                    self.global_recall_prune_counter[prunable_idx] = onekHz_recall
+
+                # get the recall nodes and prune
+                # get nodes associated with n_nodes_to_prune biggest 1 kHz recall values
+                idxs_to_prune = np.argpartition(self.global_recall_prune_counter, -n_nodes_to_prune)[-n_nodes_to_prune:]
+                # prune 
+                self.model = self.getKLPrunedModelNMask([idxs_to_prune])
+                # update prune counter after pruning
+                self.global_recall_prune_counter[idxs_to_prune] = pruned_node_val
+                self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config['optimizer']['lr'])
+                self.criterion = Criterion(self.config['optimizer'])
+
+            print(f"global_recall test: {torch.all(self.model.node_encoder.weight.data[self.global_recall_prune_counter==pruned_node_val,:] == 0)}")
+            # get the best percent of 
         else:
             raise NotImplementedError
 

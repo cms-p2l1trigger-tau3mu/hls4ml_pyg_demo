@@ -77,9 +77,11 @@ def log_epoch(epoch, phase, loss_dict, clf_probs, clf_labels, batch, writer=None
     fig = PlotCM(confusion_matrix=cm, display_labels=['Neg', 'Pos']).plot(cmap=plt.cm.Blues).figure_
     if writer is not None: writer.add_figure(f'Confusion Matrix - max_fpr_over_10/{phase}', fig, epoch)
 
+    onekHz_recall = interested_recalls[0]
+    thirtykHz_recall = interested_recalls[2]
     desc += f'auroc: {auroc:.3f}, '
     # desc += f'recall@1kHz: {recall[indices[0]]:.4f}, recall@10kHz: {recall[indices[1]]:.4f}, recall@30kHz: {recall[indices[2]]:.4f}'
-    desc += f'recall@1kHz: {interested_recalls[0]:.4f}, recall@10kHz: {interested_recalls[1]:.4f}, recall@30kHz: {interested_recalls[2]:.4f}'
+    desc += f'recall@1kHz: {onekHz_recall:.4f}, recall@10kHz: {interested_recalls[1]:.4f}, recall@30kHz: {interested_recalls[2]:.4f}'
 
 
     if exp_probs is not None and exp_labels is not None and -1 not in exp_labels and -1 not in exp_probs:
@@ -97,7 +99,9 @@ def log_epoch(epoch, phase, loss_dict, clf_probs, clf_labels, batch, writer=None
             writer.add_scalar(f'{phase}/avg_bkg_att_weights/', bkg_att_weights.mean(), epoch)
             writer.add_scalar(f'{phase}/avg_signal_att_weights/', signal_att_weights.mean(), epoch)
 
-    return desc, auroc, recall[indices[0]].item(), loss_dict['total']
+    # return desc, auroc, recall[indices[0]].item(), loss_dict['total']
+    return desc, auroc, onekHz_recall, loss_dict['total']
+    # return desc, auroc, thirtykHz_recall, loss_dict['total']
 
 
 def get_idx_for_interested_fpr(fpr, interested_fpr):

@@ -36,8 +36,8 @@ model:
   norm_type: batch               # Specify the type of normalization to use. One can also use 'instance', 'layer' or 'graph'
   deepgcn_aggr: sum #softmax          # Aggregation function for the DeeperGCN layers. Please refer to their documentation for more details
   lottery: True
-  additional_prune_method: kl 
-  kl_method_break_len: 100
+  additional_prune_method: global_recall 
+  kl_method_break_len: 650 #650 # max
 
 # batchnorm is pure torch
 # output layer + activation is quantized
